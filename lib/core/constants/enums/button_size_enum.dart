@@ -1,5 +1,1 @@
-enum ButtonSizeEnum {
-  small,
-  medium,
-  large,
-} 
+enum ButtonSizeEnum { small, medium, large }

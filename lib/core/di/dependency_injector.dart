@@ -1,77 +1,50 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter_social_chat/data/repository/auth/auth_repository.dart';
-import 'package:flutter_social_chat/data/repository/chat/chat_repository.dart';
-import 'package:flutter_social_chat/data/repository/connectivity/connectivity_repository.dart';
-import 'package:flutter_social_chat/presentation/blocs/profile_management/profile_manager_cubit.dart';
-import 'package:flutter_social_chat/presentation/blocs/phone_number_sign_in/phone_number_sign_in_cubit.dart';
-import 'package:flutter_social_chat/presentation/blocs/auth_session/auth_session_cubit.dart';
-import 'package:flutter_social_chat/presentation/blocs/chat_management/chat_management_cubit.dart';
-import 'package:flutter_social_chat/presentation/blocs/chat_session/chat_session_cubit.dart';
-import 'package:flutter_social_chat/presentation/blocs/connectivity/connectivity_cubit.dart';
-import 'package:flutter_social_chat/core/interfaces/i_auth_repository.dart';
-import 'package:flutter_social_chat/core/interfaces/i_chat_repository.dart';
-import 'package:flutter_social_chat/core/interfaces/i_connectivity_repository.dart';
-import 'package:flutter_social_chat/core/init/router/app_router.dart';
-import 'package:flutter_social_chat/core/config/env_config.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:get_it/get_it.dart';
-import 'package:stream_chat_flutter/stream_chat_flutter.dart';
+import 'package:inum/core/interfaces/i_auth_repository.dart';
+import 'package:inum/core/interfaces/i_chat_repository.dart';
+import 'package:inum/core/interfaces/i_connectivity_repository.dart';
+import 'package:inum/data/api/mattermost/mattermost_api_client.dart';
+import 'package:inum/data/api/mattermost/mattermost_ws_client.dart';
+import 'package:inum/data/repository/auth/auth_repository.dart';
+import 'package:inum/data/repository/chat/chat_repository.dart';
+import 'package:inum/data/repository/connectivity/connectivity_repository.dart';
+import 'package:inum/presentation/blocs/auth_session/auth_session_cubit.dart';
+import 'package:inum/presentation/blocs/channel_list/channel_list_cubit.dart';
+import 'package:inum/presentation/blocs/chat_session/chat_session_cubit.dart';
+import 'package:inum/presentation/blocs/connectivity/connectivity_cubit.dart';
 
 final getIt = GetIt.instance;
 
-void injectionSetup() {
-  // Core utilities
-  getIt.registerSingleton<AppRouter>(AppRouter());
+Future<void> setupDependencies() async {
+  // API Clients
+  getIt.registerLazySingleton<MattermostApiClient>(() => MattermostApiClient());
+  getIt.registerLazySingleton<MattermostWsClient>(() => MattermostWsClient());
 
-  // External services
-  getIt.registerSingleton<Connectivity>(Connectivity());
-  getIt.registerSingleton<StreamChatClient>(
-    StreamChatClient(
-      EnvConfig.instance.streamChatApiKey,
-      logLevel: Level.INFO,
-    ),
-  );
-
-  // Firebase services
-  getIt.registerLazySingleton<FirebaseAuth>(() => FirebaseAuth.instance);
-  getIt.registerLazySingleton<FirebaseFirestore>(() => FirebaseFirestore.instance);
-
-  // Domain repositories
-  getIt.registerLazySingleton<IConnectivityRepository>(() => ConnectivityRepository(getIt<Connectivity>()));
+  // Repositories
   getIt.registerLazySingleton<IAuthRepository>(
-    () => AuthRepository(getIt<FirebaseAuth>(), getIt<FirebaseFirestore>()),
+    () => AuthRepository(apiClient: getIt<MattermostApiClient>()),
   );
   getIt.registerLazySingleton<IChatRepository>(
-    () => ChatRepository(getIt<IAuthRepository>(), getIt<StreamChatClient>()),
-  );
-
-  // Blocs and Cubits
-  getIt.registerLazySingleton<ConnectivityCubit>(() => ConnectivityCubit());
-
-  // Auth Cubits
-  getIt.registerLazySingleton<AuthSessionCubit>(
-    () => AuthSessionCubit(
-      authRepository: getIt<IAuthRepository>(),
-      chatRepository: getIt<IChatRepository>(),
+    () => ChatRepository(
+      apiClient: getIt<MattermostApiClient>(),
+      wsClient: getIt<MattermostWsClient>(),
     ),
   );
-  getIt.registerLazySingleton<ProfileManagerCubit>(
-    () => ProfileManagerCubit(
-      authRepository: getIt<IAuthRepository>(),
-      firebaseFirestore: getIt<FirebaseFirestore>(),
-      authSessionCubit: getIt<AuthSessionCubit>(),
-      chatRepository: getIt<IChatRepository>(),
-    ),
+  getIt.registerLazySingleton<IConnectivityRepository>(
+    () => ConnectivityRepository(Connectivity()),
   );
-  getIt.registerFactory<PhoneNumberSignInCubit>(() => PhoneNumberSignInCubit(getIt<IAuthRepository>()));
 
-  // Chat Cubits
-  getIt.registerFactory<ChatManagementCubit>(
-    () => ChatManagementCubit(
-      getIt<IChatRepository>(),
-      getIt<FirebaseFirestore>(),
-      getIt<AuthSessionCubit>(),
-    ),
+  // Cubits
+  getIt.registerFactory<AuthSessionCubit>(
+    () => AuthSessionCubit(authRepository: getIt<IAuthRepository>()),
   );
-  getIt.registerLazySingleton<ChatSessionCubit>(() => ChatSessionCubit(getIt<IChatRepository>()));
+  getIt.registerFactory<ChatSessionCubit>(
+    () => ChatSessionCubit(chatRepository: getIt<IChatRepository>()),
+  );
+  getIt.registerFactory<ChannelListCubit>(
+    () => ChannelListCubit(chatRepository: getIt<IChatRepository>()),
+  );
+  getIt.registerFactory<ConnectivityCubit>(
+    () => ConnectivityCubit(),
+  );
 }

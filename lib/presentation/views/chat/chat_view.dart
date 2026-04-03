@@ -1,147 +1,283 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:flutter_gen/gen_l10n/app_localizations.dart';
-import 'package:flutter_social_chat/core/constants/enums/router_enum.dart';
-import 'package:flutter_social_chat/presentation/blocs/auth_session/auth_session_cubit.dart';
-import 'package:flutter_social_chat/presentation/design_system/colors.dart';
-import 'package:flutter_social_chat/presentation/design_system/widgets/custom_progress_indicator.dart';
-import 'package:flutter_social_chat/presentation/design_system/widgets/custom_text.dart';
-import 'package:flutter_social_chat/presentation/views/chat/widgets/chat_view_body.dart';
-import 'package:go_router/go_router.dart';
-import 'package:stream_chat_flutter/stream_chat_flutter.dart';
+import 'package:timeago/timeago.dart' as timeago;
+import 'package:inum/core/interfaces/i_chat_repository.dart';
+import 'package:inum/core/di/dependency_injector.dart';
+import 'package:inum/domain/models/chat/message_model.dart';
+import 'package:inum/presentation/design_system/colors.dart';
 
 class ChatView extends StatefulWidget {
-  const ChatView({super.key, required this.channel});
+  final String channelId;
+  final String channelName;
 
-  final Channel channel;
+  const ChatView({
+    super.key,
+    required this.channelId,
+    required this.channelName,
+  });
 
   @override
   State<ChatView> createState() => _ChatViewState();
 }
 
 class _ChatViewState extends State<ChatView> {
+  final _messageController = TextEditingController();
+  final _scrollController = ScrollController();
+  final List<MessageModel> _messages = [];
+  bool _isLoading = false;
+  bool _hasMore = true;
+  int _page = 0;
+  StreamSubscription<Map<String, dynamic>>? _wsSubscription;
+
+  late final IChatRepository _chatRepo;
+
   @override
   void initState() {
     super.initState();
-    _markChannelAsRead();
+    _chatRepo = getIt<IChatRepository>();
+    _loadMessages();
+    _listenToWsEvents();
+    _scrollController.addListener(_onScroll);
+    _chatRepo.markChannelAsRead(widget.channelId);
   }
 
-  void _markChannelAsRead() {
-    widget.channel.markRead();
+  @override
+  void dispose() {
+    _messageController.dispose();
+    _scrollController.dispose();
+    _wsSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _listenToWsEvents() {
+    _wsSubscription = _chatRepo.wsEvents.listen((event) {
+      final eventType = event['event'] as String?;
+      final data = event['data'] as Map<String, dynamic>? ?? {};
+
+      if (eventType == 'posted') {
+        _handleNewPost(data);
+      } else if (eventType == 'post_edited') {
+        _handleEditedPost(data);
+      } else if (eventType == 'post_deleted') {
+        _handleDeletedPost(data);
+      }
+    });
+  }
+
+  void _handleNewPost(Map<String, dynamic> data) {
+    final postStr = data['post'] as String?;
+    if (postStr == null) return;
+    try {
+      final postJson = jsonDecode(postStr) as Map<String, dynamic>;
+      if (postJson['channel_id'] == widget.channelId) {
+        final msg = MessageModel.fromMattermost(postJson);
+        if (mounted) setState(() => _messages.insert(0, msg));
+      }
+    } catch (_) {}
+  }
+
+  void _handleEditedPost(Map<String, dynamic> data) {
+    final postStr = data['post'] as String?;
+    if (postStr == null) return;
+    try {
+      final postJson = jsonDecode(postStr) as Map<String, dynamic>;
+      if (postJson['channel_id'] == widget.channelId) {
+        final msg = MessageModel.fromMattermost(postJson);
+        if (mounted) {
+          setState(() {
+            final idx = _messages.indexWhere((m) => m.id == msg.id);
+            if (idx != -1) _messages[idx] = msg;
+          });
+        }
+      }
+    } catch (_) {}
+  }
+
+  void _handleDeletedPost(Map<String, dynamic> data) {
+    final postStr = data['post'] as String?;
+    if (postStr == null) return;
+    try {
+      final postJson = jsonDecode(postStr) as Map<String, dynamic>;
+      if (postJson['channel_id'] == widget.channelId) {
+        if (mounted) {
+          setState(() => _messages.removeWhere((m) => m.id == postJson['id']));
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _loadMessages() async {
+    if (_isLoading || !_hasMore) return;
+    setState(() => _isLoading = true);
+
+    final messages = await _chatRepo.getChannelMessages(widget.channelId, _page);
+    if (mounted) {
+      setState(() {
+        _messages.addAll(messages);
+        _isLoading = false;
+        _page++;
+        if (messages.length < 60) _hasMore = false;
+      });
+    }
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      _loadMessages();
+    }
+  }
+
+  Future<void> _sendMessage() async {
+    final text = _messageController.text.trim();
+    if (text.isEmpty) return;
+    _messageController.clear();
+    try {
+      await _chatRepo.sendMessage(widget.channelId, text);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to send message: $e')),
+        );
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return StreamChannel(
-      channel: widget.channel,
-      child: Scaffold(
-        appBar: _buildAppBar(context),
-        body: const ChatViewBody(),
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.channelName.isNotEmpty ? widget.channelName : 'Chat'),
       ),
-    );
-  }
-
-  PreferredSizeWidget _buildAppBar(BuildContext context) {
-    final localization = AppLocalizations.of(context);
-    final currentUserId = context.read<AuthSessionCubit>().state.authUser.id;
-    final channelMembers = widget.channel.state?.members ?? [];
-    final isOneToOneChat = channelMembers.length == 2;
-
-    User? otherUser;
-    if (isOneToOneChat) {
-      try {
-        otherUser = channelMembers.firstWhere((member) => member.userId != currentUserId).user;
-      } catch (e) {
-        // No other user found
-      }
-    }
-
-    final displayName =
-        isOneToOneChat && otherUser != null ? otherUser.name : widget.channel.name ?? localization?.unnamedGroup;
-
-    final imageUrl = isOneToOneChat && otherUser != null ? otherUser.image : widget.channel.image;
-
-    return AppBar(
-      backgroundColor: white,
-      elevation: 0,
-      titleSpacing: 0,
-      leading: IconButton(
-        icon: const Icon(Icons.arrow_back_ios_new, color: customGreyColor800),
-        onPressed: () => context.go(RouterEnum.dashboardView.routeName),
-      ),
-      title: Row(
+      body: Column(
         children: [
-          _buildAvatar(imageUrl, isOneToOneChat),
-          const SizedBox(width: 12),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CustomText(
-                  text: displayName ?? '',
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+            child: _messages.isEmpty && _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : ListView.builder(
+                    controller: _scrollController,
+                    reverse: true,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    itemCount: _messages.length + (_hasMore ? 1 : 0),
+                    itemBuilder: (context, index) {
+                      if (index == _messages.length) {
+                        return const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(16),
+                            child: CircularProgressIndicator(),
+                          ),
+                        );
+                      }
+                      return _MessageBubble(message: _messages[index]);
+                    },
+                  ),
+          ),
+          Container(
+            decoration: BoxDecoration(
+              color: Theme.of(context).scaffoldBackgroundColor,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withAlpha(10),
+                  offset: const Offset(0, -1),
+                  blurRadius: 4,
                 ),
-                if (isOneToOneChat && otherUser?.online == true)
-                  CustomText(text: localization?.online ?? '', fontSize: 12, color: successColor),
+              ],
+            ),
+            padding: EdgeInsets.only(
+              left: 12, right: 4, top: 8,
+              bottom: MediaQuery.of(context).padding.bottom + 8,
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _messageController,
+                    decoration: InputDecoration(
+                      hintText: 'Type a message...',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(24)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    ),
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => _sendMessage(),
+                    maxLines: 4,
+                    minLines: 1,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                IconButton(
+                  onPressed: _sendMessage,
+                  icon: const Icon(Icons.send),
+                  color: inumPrimary,
+                ),
               ],
             ),
           ),
         ],
       ),
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.call, color: customGreyColor800),
-          onPressed: () {
-            // Handle call action
-          },
-        ),
-        IconButton(
-          icon: const Icon(Icons.more_vert, color: customGreyColor800),
-          onPressed: () {
-            // Show channel options menu
-          },
-        ),
-      ],
     );
   }
+}
 
-  Widget _buildAvatar(String? imageUrl, bool isOneToOneChat) {
-    const double avatarSize = 36;
+class _MessageBubble extends StatelessWidget {
+  final MessageModel message;
 
-    final Widget defaultAvatar = CircleAvatar(
-      radius: avatarSize / 2,
-      backgroundColor: customIndigoColor.withValues(alpha: 0.1),
-      child: Icon(
-        isOneToOneChat ? Icons.person : Icons.group,
-        color: customIndigoColor,
-        size: avatarSize / 2.5,
-      ),
-    );
+  const _MessageBubble({required this.message});
 
-    if (imageUrl == null || imageUrl.isEmpty) {
-      return defaultAvatar;
+  @override
+  Widget build(BuildContext context) {
+    if (message.isSystem) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Center(
+          child: Text(
+            message.message,
+            style: const TextStyle(color: customGreyColor500, fontSize: 12, fontStyle: FontStyle.italic),
+          ),
+        ),
+      );
     }
 
-    return CachedNetworkImage(
-      imageUrl: imageUrl,
-      imageBuilder: (context, imageProvider) => CircleAvatar(
-        radius: avatarSize / 2,
-        backgroundImage: imageProvider,
+    final timeStr = timeago.format(message.createAt, locale: 'en_short');
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 16,
+            backgroundColor: inumPrimary.withAlpha(30),
+            child: Text(
+              message.userId.isNotEmpty ? message.userId[0].toUpperCase() : '?',
+              style: const TextStyle(color: inumPrimary, fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        message.userId,
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(timeStr, style: const TextStyle(color: customGreyColor500, fontSize: 11)),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(message.message, style: const TextStyle(fontSize: 14)),
+              ],
+            ),
+          ),
+        ],
       ),
-      placeholder: (context, url) => const CircleAvatar(
-        radius: avatarSize / 2,
-        backgroundColor: customGreyColor200,
-        child: CustomProgressIndicator(
-          size: 20,
-          progressIndicatorColor: customIndigoColor,
-        ),
-      ),
-      errorWidget: (context, url, error) => defaultAvatar,
     );
   }
 }

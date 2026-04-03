@@ -1,8 +1,6 @@
 enum AuthFailureEnum {
   serverError,
-  tooManyRequests,
-  deviceNotSupported,
-  smsTimeout,
+  invalidCredentials,
   sessionExpired,
-  invalidVerificationCode,
-} 
+  networkError,
+}

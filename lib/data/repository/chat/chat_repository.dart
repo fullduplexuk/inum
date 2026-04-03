@@ -1,197 +1,135 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_social_chat/core/interfaces/i_auth_repository.dart';
-import 'package:flutter_social_chat/domain/models/chat/chat_user_model.dart';
-import 'package:flutter_social_chat/core/interfaces/i_chat_repository.dart';
-import 'package:flutter_social_chat/data/extensions/chat/chat_user_extensions.dart';
-import 'package:flutter_social_chat/core/constants/enums/chat_failure_enum.dart';
-import 'package:flutter_social_chat/core/config/env_config.dart';
-import 'package:fpdart/fpdart.dart';
-import 'package:stream_chat_flutter/stream_chat_flutter.dart' hide Unit;
-import 'dart:convert';
-import 'package:crypto/crypto.dart';
+import 'package:inum/core/interfaces/i_chat_repository.dart';
+import 'package:inum/data/api/mattermost/mattermost_api_client.dart';
+import 'package:inum/data/api/mattermost/mattermost_ws_client.dart';
+import 'package:inum/domain/models/chat/channel_model.dart';
+import 'package:inum/domain/models/chat/message_model.dart';
 
 class ChatRepository implements IChatRepository {
-  ChatRepository(this._authRepository, this._streamChatClient);
+  final MattermostApiClient _apiClient;
+  final MattermostWsClient _wsClient;
 
-  final IAuthRepository _authRepository;
-  final StreamChatClient _streamChatClient;
+  final StreamController<List<ChannelModel>> _channelsController =
+      StreamController<List<ChannelModel>>.broadcast();
 
-  // Stream Chat API Secret is retrieved from environment configuration
-  // No hardcoded secrets
+  List<ChannelModel> _cachedChannels = [];
+  StreamSubscription<Map<String, dynamic>>? _wsSubscription;
+
+  ChatRepository({
+    required MattermostApiClient apiClient,
+    required MattermostWsClient wsClient,
+  })  : _apiClient = apiClient,
+        _wsClient = wsClient;
 
   @override
-  Stream<ChatUserModel> get chatAuthStateChanges {
-    return _streamChatClient.state.currentUserStream.map(
-      (OwnUser? user) => user?.toDomain() ?? ChatUserModel.empty(),
-    );
-  }
+  Stream<List<ChannelModel>> get channelsStream => _channelsController.stream;
 
   @override
-  Future<Either<ChatFailureEnum, Unit>> disconnectUser() async {
-    try {
-      await _streamChatClient.disconnectUser();
-      return right(unit);
-    } catch (e) {
-      debugPrint('Error disconnecting user: $e');
-      return left(ChatFailureEnum.serverError);
+  Stream<Map<String, dynamic>> get wsEvents => _wsClient.events;
+
+  @override
+  Future<void> connectWebSocket() async {
+    final token = _apiClient.token;
+    if (token == null) {
+      debugPrint('Cannot connect WS: no token');
+      return;
     }
+
+    await _wsClient.connect(token);
+
+    _wsSubscription?.cancel();
+    _wsSubscription = _wsClient.events.listen(_handleWsEvent);
+
+    await _loadChannels();
   }
 
   @override
-  Stream<List<Channel>> get channelsThatTheUserIsIncluded {
+  Future<void> disconnectWebSocket() async {
+    _wsSubscription?.cancel();
+    _wsSubscription = null;
+    _wsClient.disconnect();
+  }
+
+  Future<void> _loadChannels() async {
     try {
-      final currentUser = _streamChatClient.state.currentUser;
-      if (currentUser == null) {
-        return Stream.value([]);
+      final teams = await _apiClient.getMyTeams();
+      final allChannels = <ChannelModel>[];
+
+      for (final team in teams) {
+        final teamId = team['id'] as String;
+        final channels = await _apiClient.getMyChannels(teamId);
+        for (final ch in channels) {
+          allChannels.add(ChannelModel.fromMattermost(ch as Map<String, dynamic>));
+        }
       }
 
-      return _streamChatClient
-          .queryChannels(
-            filter: Filter.in_('members', [currentUser.id]),
-          )
-          .map((channels) => channels);
+      allChannels.sort((a, b) => b.lastPostAt.compareTo(a.lastPostAt));
+      _cachedChannels = allChannels;
+      _channelsController.add(_cachedChannels);
     } catch (e) {
-      debugPrint('Error fetching channels: $e');
-      return Stream.value([]);
+      debugPrint('Error loading channels: $e');
     }
   }
 
-  /// Generates a Stream Chat token for the given user ID
-  String _generateToken(String userId) {
-    // In production, token generation should happen on the server
-    // This is only for development purposes
-    
-    // Get API secret from environment config
-    final apiSecret = EnvConfig.instance.streamChatApiSecret;
+  void _handleWsEvent(Map<String, dynamic> event) {
+    final eventType = event['event'] as String?;
+    if (eventType == null) return;
 
-    // Header
-    final header = {'alg': 'HS256', 'typ': 'JWT'};
-    final encodedHeader = base64Url.encode(utf8.encode(json.encode(header)));
-
-    // Payload with the user ID
-    final payload = {'user_id': userId};
-    final encodedPayload = base64Url.encode(utf8.encode(json.encode(payload)));
-
-    // Create signature
-    final message = '$encodedHeader.$encodedPayload';
-    final hmac = Hmac(sha256, utf8.encode(apiSecret));
-    final digest = hmac.convert(utf8.encode(message));
-    final signature = base64Url.encode(digest.bytes);
-
-    // Return the JWT token
-    return '$encodedHeader.$encodedPayload.$signature';
-  }
-
-  @override
-  Future<Either<ChatFailureEnum, Unit>> connectTheCurrentUser() async {
-    try {
-      final signedInUserOption = await _authRepository.getSignedInUser();
-
-      final signedInUser = signedInUserOption.fold(
-        () => throw Exception('User not authenticated'),
-        (user) => user,
-      );
-
-      // Generate a token specific to this user
-      final userToken = _generateToken(signedInUser.id);
-
-      // Log token info for debugging
-      debugPrint('Connecting user: ${signedInUser.id}');
-
-      await _streamChatClient.connectUser(
-        User(
-          id: signedInUser.id,
-          name: signedInUser.userName,
-          image: signedInUser.photoUrl,
-        ),
-        userToken,
-      );
-      return right(unit);
-    } catch (e) {
-      debugPrint('Error connecting user: $e');
-      return left(ChatFailureEnum.connectionFailure);
+    switch (eventType) {
+      case 'posted':
+      case 'post_edited':
+      case 'post_deleted':
+      case 'channel_viewed':
+        _loadChannels();
+      default:
+        break;
     }
   }
 
   @override
-  Future<Either<ChatFailureEnum, Unit>> createNewChannel({
-    required List<String> listOfMemberIDs,
-    required String channelName,
-    required String channelImageUrl,
-  }) async {
+  Future<List<MessageModel>> getChannelMessages(String channelId, int page) async {
     try {
-      if (listOfMemberIDs.isEmpty) {
-        return left(ChatFailureEnum.channelCreateFailure);
+      final data = await _apiClient.getPosts(channelId, page: page);
+      final order = data['order'] as List<dynamic>? ?? [];
+      final posts = data['posts'] as Map<String, dynamic>? ?? {};
+
+      final messages = <MessageModel>[];
+      for (final postId in order) {
+        final post = posts[postId as String];
+        if (post != null) {
+          messages.add(MessageModel.fromMattermost(post as Map<String, dynamic>));
+        }
       }
-
-      final randomId = const Uuid().v1();
-
-      await _streamChatClient.createChannel(
-        'messaging',
-        channelId: randomId,
-        channelData: {
-          'members': listOfMemberIDs,
-          'name': channelName,
-          'image': channelImageUrl,
-          'created_at': DateTime.now().toIso8601String(),
-        },
-      );
-      return right(unit);
+      return messages;
     } catch (e) {
-      debugPrint('Error creating channel: $e');
-      return left(ChatFailureEnum.channelCreateFailure);
+      debugPrint('Error fetching messages: $e');
+      return [];
     }
   }
 
   @override
-  Future<Either<ChatFailureEnum, Unit>> sendPhotoAsMessageToTheSelectedUser({
-    required String channelId,
-    required int sizeOfTheTakenPhoto,
-    required String pathOfTheTakenPhoto,
-  }) async {
-    if (channelId.isEmpty || pathOfTheTakenPhoto.isEmpty) {
-      return left(ChatFailureEnum.imageUploadFailure);
-    }
+  Future<void> sendMessage(String channelId, String message, {String? rootId}) async {
+    await _apiClient.createPost(channelId, message, rootId: rootId);
+  }
 
-    try {
-      final randomMessageId = const Uuid().v1();
+  @override
+  Future<void> updateMessage(String postId, String message) async {
+    await _apiClient.updatePost(postId, message);
+  }
 
-      final signedInUserOption = await _authRepository.getSignedInUser();
-      final signedInUser = signedInUserOption.fold(
-        () => throw Exception('User not authenticated'),
-        (user) => user,
-      );
-      final user = User(id: signedInUser.id);
+  @override
+  Future<void> deleteMessage(String postId) async {
+    await _apiClient.deletePost(postId);
+  }
 
-      // Upload the image first
-      final response = await _streamChatClient.sendImage(
-        AttachmentFile(
-          size: sizeOfTheTakenPhoto,
-          path: pathOfTheTakenPhoto,
-        ),
-        channelId,
-        'messaging',
-      );
+  @override
+  Future<void> markChannelAsRead(String channelId) async {
+    await _apiClient.viewChannel(channelId);
+  }
 
-      // Create and send the message with the image
-      final imageUrl = response.file;
-      final image = Attachment(
-        type: 'image',
-        imageUrl: imageUrl,
-      );
-
-      final message = Message(
-        user: user,
-        id: randomMessageId,
-        createdAt: DateTime.now(),
-        attachments: [image],
-      );
-
-      await _streamChatClient.sendMessage(message, channelId, 'messaging');
-      return right(unit);
-    } catch (e) {
-      debugPrint('Error sending photo message: $e');
-      return left(ChatFailureEnum.imageUploadFailure);
-    }
+  void dispose() {
+    _wsSubscription?.cancel();
+    _channelsController.close();
   }
 }

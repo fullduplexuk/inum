@@ -121,7 +121,6 @@ coverage.xml
 .test_coverage.dart
 
 # Web related
-lib/generated_plugin_registrant.dart
 **/web/favicon.png
 **/web/manifest.json
 **/web/splash/

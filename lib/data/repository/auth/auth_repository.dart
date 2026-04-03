@@ -1,303 +1,131 @@
 import 'dart:async';
-
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_social_chat/core/constants/enums/auth_failure_enum.dart';
-import 'package:flutter_social_chat/domain/models/auth/auth_user_model.dart';
-import 'package:flutter_social_chat/core/interfaces/i_auth_repository.dart';
-import 'package:flutter_social_chat/data/extensions/auth/auth_user_extensions.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:fpdart/fpdart.dart';
+import 'package:inum/core/config/env_config.dart';
+import 'package:inum/core/constants/enums/auth_failure_enum.dart';
+import 'package:inum/core/interfaces/i_auth_repository.dart';
+import 'package:inum/data/api/mattermost/mattermost_api_client.dart';
+import 'package:inum/domain/models/auth/auth_user_model.dart';
 
 class AuthRepository implements IAuthRepository {
-  AuthRepository(this._firebaseAuth, this._firestore) {
-    // Disable verification for testing purposes
-    // This will disable reCAPTCHA for phone auth verification
-    // Only use this for development, not in production
-    _firebaseAuth.setSettings(
-      appVerificationDisabledForTesting: true,
-      phoneNumber: '+905555555555',
-      smsCode: '111111',
-    );
-  }
+  final MattermostApiClient _apiClient;
+  final FlutterSecureStorage _secureStorage;
+  final StreamController<AuthUserModel> _authStateController =
+      StreamController<AuthUserModel>.broadcast();
 
-  final FirebaseAuth _firebaseAuth;
-  final FirebaseFirestore _firestore;
+  static const _tokenKey = 'mm_token';
+  static const _userKey = 'mm_user';
+
+  AuthRepository({
+    required MattermostApiClient apiClient,
+    FlutterSecureStorage? secureStorage,
+  })  : _apiClient = apiClient,
+        _secureStorage = secureStorage ?? const FlutterSecureStorage();
 
   @override
-  Stream<AuthUserModel> get authStateChanges {
-    return _firebaseAuth.authStateChanges().asyncMap((User? user) async {
-      if (user == null) return AuthUserModel.empty();
-      
-      // Get the base user model from Firebase Auth
-      final baseUserModel = user.toDomain();
-      
-      try {
-        // Fetch the user document from Firestore to get isOnboardingCompleted
-        final userDoc = await _firestore.collection('users').doc(user.uid).get();
-        
-        if (userDoc.exists) {
-          final userData = userDoc.data();
-          final bool isOnboardingCompleted = userData?['isOnboardingCompleted'] as bool? ?? false;
-          
-          // Return user model with the correct isOnboardingCompleted value from Firestore
-          return baseUserModel.copyWith(isOnboardingCompleted: isOnboardingCompleted);
-        }
-      } catch (e) {
-        debugPrint('Error fetching user data from Firestore: $e');
+  Stream<AuthUserModel> get authStateChanges => _authStateController.stream;
+
+  @override
+  Future<Either<AuthFailureEnum, AuthUserModel>> login(String loginId, String password) async {
+    try {
+      final userData = await _apiClient.login(loginId, password);
+      final baseUrl = EnvConfig.instance.mattermostBaseUrl;
+      final user = AuthUserModel.fromJson(userData, baseUrl: baseUrl);
+
+      final token = _apiClient.token;
+      if (token != null) {
+        await _secureStorage.write(key: _tokenKey, value: token);
       }
-      
-      // If Firestore fetch fails, return the base model
-      return baseUserModel;
-    });
+      await _secureStorage.write(key: _userKey, value: jsonEncode(user.toJson()));
+
+      _authStateController.add(user);
+      return Right(user);
+    } on MattermostApiException catch (e) {
+      debugPrint('Login error: $e');
+      if (e.statusCode == 401) {
+        return const Left(AuthFailureEnum.invalidCredentials);
+      }
+      return const Left(AuthFailureEnum.serverError);
+    } catch (e) {
+      debugPrint('Login error: $e');
+      return const Left(AuthFailureEnum.networkError);
+    }
+  }
+
+  @override
+  Future<void> logout() async {
+    try {
+      await _apiClient.logout();
+    } catch (e) {
+      debugPrint('Logout API error (ignored): $e');
+    }
+    await _secureStorage.delete(key: _tokenKey);
+    await _secureStorage.delete(key: _userKey);
+    _authStateController.add(AuthUserModel.empty());
   }
 
   @override
   Future<Option<AuthUserModel>> getSignedInUser() async {
-    final user = _firebaseAuth.currentUser;
-    if (user == null) return none();
-    
     try {
-      final baseUserModel = user.toDomain();
-      final userDoc = await _firestore.collection('users').doc(user.uid).get();
-      
-      if (userDoc.exists) {
-        final userData = userDoc.data();
-        final bool isOnboardingCompleted = userData?['isOnboardingCompleted'] as bool? ?? false;
-        return some(baseUserModel.copyWith(isOnboardingCompleted: isOnboardingCompleted));
+      final token = await _secureStorage.read(key: _tokenKey);
+      final userJson = await _secureStorage.read(key: _userKey);
+
+      if (token == null || userJson == null) {
+        return const None();
       }
-      
-      return some(baseUserModel);
-    } catch (e) {
-      debugPrint('Error getting signed in user data: $e');
-      return optionOf(user.toDomain());
-    }
-  }
 
-  @override
-  Future<void> signOut() async {
-    try {
-      await _firebaseAuth.signOut();
-    } catch (e) {
-      debugPrint('Error signing out: $e');
-      // We don't rethrow, as signOut should be a silent operation that doesn't fail
-    }
-  }
+      _apiClient.setToken(token);
 
-  @override
-  Stream<Either<AuthFailureEnum, (String, int?)>> signInWithPhoneNumber({
-    required String phoneNumber,
-    required Duration timeout,
-    required int? resendToken,
-  }) async* {
-    final StreamController<Either<AuthFailureEnum, (String, int?)>> streamController =
-        StreamController<Either<AuthFailureEnum, (String, int?)>>();
-
-    // Add cleanup to prevent memory leaks
-    Future<void> cleanUp() async {
-      if (!streamController.isClosed) {
-        await streamController.close();
-      }
-    }
-
-    // Ensure cleanup when the stream is no longer listened to
-    streamController.onCancel = cleanUp;
-
-    try {
-      // Configure Firebase Auth for iOS to improve Safari compatibility
-      _firebaseAuth.setLanguageCode('en');
-
-      await _firebaseAuth.verifyPhoneNumber(
-        forceResendingToken: resendToken,
-        timeout: timeout,
-        phoneNumber: phoneNumber,
-        verificationCompleted: (PhoneAuthCredential credential) async {
-          // Android Only - auto verification
-          try {
-            await _firebaseAuth.signInWithCredential(credential);
-          } catch (e) {
-            debugPrint('Auto verification failed: $e');
-            streamController.add(left(AuthFailureEnum.serverError));
-          }
-        },
-        codeSent: (String verificationId, int? resendToken) async {
-          final resendMessage = resendToken != null ? ' (RESEND)' : '';
-          debugPrint('SMS code sent successfully$resendMessage, verification ID: $verificationId');
-          streamController.add(right((verificationId, resendToken)));
-          
-          // Ensure stream completes after delivering results for resend
-          if (resendToken != null) {
-            debugPrint('Completing resend code stream');
-            await Future.delayed(const Duration(milliseconds: 100));
-            await cleanUp();
-          }
-        },
-        codeAutoRetrievalTimeout: (String verificationId) {
-          debugPrint('SMS code auto retrieval timed out');
-          // Only add timeout if stream is still being listened to
-          if (!streamController.isClosed) {
-            streamController.add(left(AuthFailureEnum.smsTimeout));
-          }
-        },
-        verificationFailed: (FirebaseAuthException e) {
-          debugPrint('Phone verification failed: ${e.code} - ${e.message}');
-          late final Either<AuthFailureEnum, (String, int?)> result;
-
-          switch (e.code) {
-            case 'too-many-requests':
-              result = left(AuthFailureEnum.tooManyRequests);
-              break;
-            case 'app-not-authorized':
-              result = left(AuthFailureEnum.deviceNotSupported);
-              break;
-            case 'invalid-phone-number':
-              result = left(AuthFailureEnum.serverError);
-              break;
-            case 'captcha-check-failed':
-              // This error occurs when reCAPTCHA verification fails
-              result = left(AuthFailureEnum.serverError);
-              break;
-            default:
-              result = left(AuthFailureEnum.serverError);
-          }
-
-          streamController.add(result);
-        },
-      );
-    } catch (e) {
-      debugPrint('Unexpected error in signInWithPhoneNumber: $e');
-      streamController.add(left(AuthFailureEnum.serverError));
-    }
-
-    yield* streamController.stream;
-  }
-
-  @override
-  Future<void> updateDisplayName({required String displayName}) async {
-    final user = _firebaseAuth.currentUser;
-    if (user == null) return;
-
-    await user.updateDisplayName(displayName);
-    await _updateUserDataInFirestore({'userName': displayName});
-  }
-
-  @override
-  Future<void> updatePhotoURL({required String photoURL}) async {
-    final user = _firebaseAuth.currentUser;
-    if (user == null) return;
-
-    await user.updatePhotoURL(photoURL);
-    await _updateUserDataInFirestore({'photoUrl': photoURL});
-  }
-
-  @override
-  Future<void> updateUserProfile({
-    String? displayName,
-    String? photoURL,
-    bool? isOnboardingCompleted,
-  }) async {
-    final user = _firebaseAuth.currentUser;
-    if (user == null) return;
-
-    final Map<String, dynamic> firestoreData = {};
-
-    if (displayName != null) {
-      await user.updateDisplayName(displayName);
-      firestoreData['userName'] = displayName;
-    }
-
-    if (photoURL != null) {
-      await user.updatePhotoURL(photoURL);
-      firestoreData['photoUrl'] = photoURL;
-    }
-
-    if (isOnboardingCompleted != null) {
-      firestoreData['isOnboardingCompleted'] = isOnboardingCompleted;
-    }
-
-    if (firestoreData.isNotEmpty) {
-      await _updateUserDataInFirestore(firestoreData);
-    }
-  }
-
-  Future<void> _updateUserDataInFirestore(Map<String, dynamic> data) async {
-    final user = _firebaseAuth.currentUser;
-    if (user == null) return;
-
-    final userDoc = _firestore.collection('users').doc(user.uid);
-
-    try {
-      // Optimized: Use transaction to ensure atomic operations
-      await _firestore.runTransaction((transaction) async {
-        final docSnapshot = await transaction.get(userDoc);
-
-        if (docSnapshot.exists) {
-          transaction.update(userDoc, data);
-        } else {
-          // Include required fields if creating a new document
-          final completeData = {
-            'userName': user.displayName ?? 'User',
-            'phoneNumber': user.phoneNumber ?? '',
-            'isOnboardingCompleted': false,
-            'createdAt': FieldValue.serverTimestamp(),
-            ...data,
-          };
-          transaction.set(userDoc, completeData);
+      try {
+        final userData = await _apiClient.getMe();
+        final baseUrl = EnvConfig.instance.mattermostBaseUrl;
+        final user = AuthUserModel.fromJson(userData, baseUrl: baseUrl);
+        await _secureStorage.write(key: _userKey, value: jsonEncode(user.toJson()));
+        _authStateController.add(user);
+        return Some(user);
+      } on MattermostApiException catch (e) {
+        if (e.statusCode == 401) {
+          await _secureStorage.delete(key: _tokenKey);
+          await _secureStorage.delete(key: _userKey);
+          return const None();
         }
-      });
+        // Network error - use cached user
+        final cached = jsonDecode(userJson) as Map<String, dynamic>;
+        final user = AuthUserModel(
+          id: cached['id'] as String? ?? '',
+          username: cached['username'] as String? ?? '',
+          email: cached['email'] as String? ?? '',
+          firstName: cached['first_name'] as String? ?? '',
+          lastName: cached['last_name'] as String? ?? '',
+          nickname: cached['nickname'] as String? ?? '',
+          position: cached['position'] as String? ?? '',
+          locale: cached['locale'] as String? ?? 'en',
+          status: cached['status'] as String? ?? 'offline',
+          profileImageUrl: cached['profile_image_url'] as String? ?? '',
+        );
+        _authStateController.add(user);
+        return Some(user);
+      }
     } catch (e) {
-      debugPrint('Error updating Firestore data: $e');
+      debugPrint('getSignedInUser error: $e');
+      return const None();
     }
   }
 
   @override
-  Future<Either<AuthFailureEnum, Unit>> verifySmsCode({
-    required String smsCode,
-    required String verificationId,
-  }) async {
+  Future<void> updateStatus(String status) async {
+    final userId = _apiClient.currentUserId;
+    if (userId == null) return;
     try {
-      final credential = PhoneAuthProvider.credential(
-        verificationId: verificationId,
-        smsCode: smsCode,
-      );
-
-      await _firebaseAuth.signInWithCredential(credential);
-
-      // Create or update the user document
-      final user = _firebaseAuth.currentUser;
-      if (user != null) {
-        // First check if the user document already exists
-        final userDoc = _firestore.collection('users').doc(user.uid);
-        final docSnapshot = await userDoc.get();
-        
-        if (docSnapshot.exists) {
-          // User exists, only update lastLogin
-          await userDoc.update({
-            'lastLogin': FieldValue.serverTimestamp(),
-          });
-        } else {
-          // New user, create a document with isOnboardingCompleted = false
-          await userDoc.set({
-            'userName': user.displayName ?? 'User',
-            'phoneNumber': user.phoneNumber ?? '',
-            'isOnboardingCompleted': false,
-            'createdAt': FieldValue.serverTimestamp(),
-            'lastLogin': FieldValue.serverTimestamp(),
-          });
-        }
-      }
-
-      return right(unit);
-    } on FirebaseAuthException catch (e) {
-      if (e.code == 'session-expired') {
-        return left(AuthFailureEnum.sessionExpired);
-      } else if (e.code == 'invalid-verification-code') {
-        return left(AuthFailureEnum.invalidVerificationCode);
-      }
-      return left(AuthFailureEnum.serverError);
+      await _apiClient.updateStatus(userId, status);
     } catch (e) {
-      debugPrint('Unexpected error during SMS verification: $e');
-      return left(AuthFailureEnum.serverError);
+      debugPrint('updateStatus error: $e');
     }
+  }
+
+  void dispose() {
+    _authStateController.close();
   }
 }

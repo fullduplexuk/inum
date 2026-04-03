@@ -8,9 +8,13 @@ const Color errorColor = Colors.red;
 const Color successColor = Colors.green;
 const Color customOrangeColor = Colors.orange;
 
-/// Primary brand colors
-const Color customIndigoColor = Color.fromRGBO(65, 71, 220, 1);
-const Color customIndigoColorSecondary = Color.fromRGBO(112, 87, 210, 1);
+/// INUM brand colors
+const Color inumPrimary = Color(0xFF1E3A5F);
+const Color inumSecondary = Color(0xFF00BCD4);
+
+/// Legacy aliases
+const Color customIndigoColor = inumPrimary;
+const Color customIndigoColorSecondary = inumSecondary;
 
 /// Background colors
 const Color backgroundGrey = Color.fromRGBO(245, 247, 250, 1);
@@ -34,8 +38,13 @@ const Color customGreyColor200 = Color.fromRGBO(238, 238, 238, 1);
 const Color secondaryTextColor = Color.fromRGBO(100, 100, 100, 1);
 const Color disabledTextColor = customGreyColor500;
 
+/// Dark theme colors
+const Color darkBackground = Color(0xFF121212);
+const Color darkSurface = Color(0xFF1E1E1E);
+const Color darkCard = Color(0xFF2C2C2C);
+
 /// Button gradient colors
-const Color buttonGradientActiveStart = customIndigoColor;
-const Color buttonGradientActiveEnd = customIndigoColorSecondary;
+const Color buttonGradientActiveStart = inumPrimary;
+const Color buttonGradientActiveEnd = inumSecondary;
 const Color buttonGradientInactiveStart = customGreyColor400;
 const Color buttonGradientInactiveEnd = customGreyColor600;

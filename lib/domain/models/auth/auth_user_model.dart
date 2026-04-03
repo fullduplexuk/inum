@@ -1,83 +1,104 @@
 import 'package:equatable/equatable.dart';
 
-/// Model representing a user's authentication and profile information
-/// 
-/// This model is used throughout the application to represent the current user's
-/// state, including their authentication status and profile information.
 class AuthUserModel extends Equatable {
-  /// Unique identifier for the user
   final String id;
-  
-  /// User's phone number (used for authentication)
-  final String phoneNumber;
-  
-  /// Whether the user has completed the onboarding process
-  final bool isOnboardingCompleted;
-  
-  /// User's display name (null if not set)
-  final String? userName;
-  
-  /// URL to the user's profile photo (null if not set)
-  final String? photoUrl;
+  final String username;
+  final String email;
+  final String firstName;
+  final String lastName;
+  final String nickname;
+  final String position;
+  final String locale;
+  final String status;
+  final String profileImageUrl;
 
   const AuthUserModel({
     required this.id,
-    required this.phoneNumber,
-    required this.isOnboardingCompleted,
-    this.userName,
-    this.photoUrl,
+    required this.username,
+    required this.email,
+    this.firstName = '',
+    this.lastName = '',
+    this.nickname = '',
+    this.position = '',
+    this.locale = 'en',
+    this.status = 'offline',
+    this.profileImageUrl = '',
   });
 
-  @override
-  List<Object?> get props => [id, phoneNumber, isOnboardingCompleted, userName, photoUrl];
+  bool get isAuthenticated => id.isNotEmpty;
 
-  /// Creates an empty user model representing an unauthenticated state
+  String get displayName {
+    if (firstName.isNotEmpty || lastName.isNotEmpty) {
+      return '$firstName $lastName'.trim();
+    }
+    if (nickname.isNotEmpty) return nickname;
+    return username;
+  }
+
   factory AuthUserModel.empty() => const AuthUserModel(
         id: '',
-        phoneNumber: '',
-        isOnboardingCompleted: false,
-        userName: '',
-        photoUrl: '',
+        username: '',
+        email: '',
       );
-      
-  /// Checks if this is a valid authenticated user
-  bool get isAuthenticated => id.isNotEmpty && phoneNumber.isNotEmpty;
-  
-  /// Checks if the user has a complete profile
-  bool get hasCompleteProfile => isAuthenticated && userName != null && userName!.isNotEmpty && photoUrl != null && photoUrl!.isNotEmpty;
 
-  /// Creates a copy of this model with some fields replaced
-  AuthUserModel copyWith({
-    String? id,
-    String? phoneNumber,
-    bool? isOnboardingCompleted,
-    String? userName,
-    String? photoUrl,
-  }) {
+  factory AuthUserModel.fromJson(Map<String, dynamic> json, {String baseUrl = ''}) {
+    final userId = json['id'] as String? ?? '';
     return AuthUserModel(
-      id: id ?? this.id,
-      phoneNumber: phoneNumber ?? this.phoneNumber,
-      isOnboardingCompleted: isOnboardingCompleted ?? this.isOnboardingCompleted,
-      userName: userName ?? this.userName,
-      photoUrl: photoUrl ?? this.photoUrl,
+      id: userId,
+      username: json['username'] as String? ?? '',
+      email: json['email'] as String? ?? '',
+      firstName: json['first_name'] as String? ?? '',
+      lastName: json['last_name'] as String? ?? '',
+      nickname: json['nickname'] as String? ?? '',
+      position: json['position'] as String? ?? '',
+      locale: json['locale'] as String? ?? 'en',
+      status: json['status'] as String? ?? 'offline',
+      profileImageUrl: baseUrl.isNotEmpty ? '$baseUrl/api/v4/users/$userId/image' : '',
     );
   }
 
-  /// Converts the model to JSON
   Map<String, dynamic> toJson() => {
         'id': id,
-        'phoneNumber': phoneNumber,
-        'isOnboardingCompleted': isOnboardingCompleted,
-        'userName': userName,
-        'photoUrl': photoUrl,
+        'username': username,
+        'email': email,
+        'first_name': firstName,
+        'last_name': lastName,
+        'nickname': nickname,
+        'position': position,
+        'locale': locale,
+        'status': status,
+        'profile_image_url': profileImageUrl,
       };
 
-  /// Creates a model from JSON data
-  factory AuthUserModel.fromJson(Map<String, dynamic> json) => AuthUserModel(
-        id: json['id'] as String? ?? '',
-        phoneNumber: json['phoneNumber'] as String? ?? '',
-        isOnboardingCompleted: json['isOnboardingCompleted'] as bool? ?? false,
-        userName: json['userName'] as String?,
-        photoUrl: json['photoUrl'] as String?,
-      );
+  AuthUserModel copyWith({
+    String? id,
+    String? username,
+    String? email,
+    String? firstName,
+    String? lastName,
+    String? nickname,
+    String? position,
+    String? locale,
+    String? status,
+    String? profileImageUrl,
+  }) {
+    return AuthUserModel(
+      id: id ?? this.id,
+      username: username ?? this.username,
+      email: email ?? this.email,
+      firstName: firstName ?? this.firstName,
+      lastName: lastName ?? this.lastName,
+      nickname: nickname ?? this.nickname,
+      position: position ?? this.position,
+      locale: locale ?? this.locale,
+      status: status ?? this.status,
+      profileImageUrl: profileImageUrl ?? this.profileImageUrl,
+    );
+  }
+
+  @override
+  List<Object?> get props => [
+        id, username, email, firstName, lastName,
+        nickname, position, locale, status, profileImageUrl,
+      ];
 }

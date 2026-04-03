@@ -1,10 +1,7 @@
 enum ChatFailureEnum {
   serverError,
-  networkError,
-  insufficientPermissions,
-  channelCreateFailure,
-  messageDeliveryFailure,
   connectionFailure,
-  authenticationFailure,
+  channelCreateFailure,
+  messageSendFailure,
   imageUploadFailure,
-} 
+}

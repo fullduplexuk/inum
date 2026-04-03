@@ -1,40 +1,20 @@
 import 'package:equatable/equatable.dart';
-import 'package:flutter_social_chat/domain/models/chat/chat_user_model.dart';
-import 'package:stream_chat_flutter/stream_chat_flutter.dart';
 
-class ChatSessionState extends Equatable {
-  final ChatUserModel chatUser;
-  final ConnectionStatus webSocketConnectionStatus;
-  final bool isUserCheckedFromChatService;
-
-  const ChatSessionState({
-    required this.chatUser,
-    required this.webSocketConnectionStatus,
-    required this.isUserCheckedFromChatService,
-  });
+abstract class ChatSessionState extends Equatable {
+  const ChatSessionState();
 
   @override
-  List<Object> get props => [chatUser, webSocketConnectionStatus, isUserCheckedFromChatService];
+  List<Object?> get props => [];
+}
 
-  ChatSessionState copyWith({
-    ChatUserModel? chatUser,
-    ConnectionStatus? webSocketConnectionStatus,
-    bool? isUserCheckedFromChatService,
-  }) {
-    return ChatSessionState(
-      chatUser: chatUser ?? this.chatUser,
-      webSocketConnectionStatus: webSocketConnectionStatus ?? this.webSocketConnectionStatus,
-      isUserCheckedFromChatService: isUserCheckedFromChatService ?? this.isUserCheckedFromChatService,
-    );
-  }
+class ChatSessionDisconnected extends ChatSessionState {
+  const ChatSessionDisconnected();
+}
 
-  factory ChatSessionState.empty() {
-    return ChatSessionState(
-      chatUser: ChatUserModel.empty(),
-      webSocketConnectionStatus: ConnectionStatus.disconnected,
-      isUserCheckedFromChatService: false,
-    );
-  }
+class ChatSessionConnecting extends ChatSessionState {
+  const ChatSessionConnecting();
+}
 
-  bool get isChatUserConnected => chatUser != ChatUserModel.empty();
+class ChatSessionConnected extends ChatSessionState {
+  const ChatSessionConnected();
 }

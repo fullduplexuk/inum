@@ -1,5 +1,1 @@
-enum ButtonTypeEnum {
-  primary,
-  secondary,
-  text,
-} 
+enum ButtonTypeEnum { primary, secondary, outline }
