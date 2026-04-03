@@ -5,7 +5,10 @@ enum RouterEnum {
   chatView('/chat'),
   profileView('/profile'),
   settingsView('/settings'),
-  callView('/call');
+  callView('/call'),
+  callHistoryView('/call-history'),
+  voicemailView('/voicemail'),
+  contactsView('/contacts');
 
   final String routeName;
   const RouterEnum(this.routeName);

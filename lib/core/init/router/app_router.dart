@@ -6,7 +6,9 @@ import 'package:inum/presentation/views/bottom_tab/bottom_tab_view.dart';
 import 'package:inum/presentation/views/call/call_screen.dart';
 import 'package:inum/presentation/views/chat/chat_view.dart';
 import 'package:inum/presentation/views/landing/landing_view.dart';
+import 'package:inum/presentation/views/settings/settings_view.dart';
 import 'package:inum/presentation/views/sign_in/sign_in_view.dart';
+import 'package:inum/presentation/views/voicemail/voicemail_view.dart';
 
 class AppRouter {
   static final _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -53,6 +55,26 @@ class AppRouter {
         path: RouterEnum.callView.routeName,
         pageBuilder: (context, state) =>
             customPageBuilderWidget(context, state, const CallScreen()),
+      ),
+      GoRoute(
+        path: RouterEnum.callHistoryView.routeName,
+        pageBuilder: (context, state) =>
+            customPageBuilderWidget(context, state, const BottomTabView(initialTab: 1)),
+      ),
+      GoRoute(
+        path: RouterEnum.voicemailView.routeName,
+        pageBuilder: (context, state) =>
+            customPageBuilderWidget(context, state, const VoicemailView()),
+      ),
+      GoRoute(
+        path: RouterEnum.contactsView.routeName,
+        pageBuilder: (context, state) =>
+            customPageBuilderWidget(context, state, const BottomTabView(initialTab: 2)),
+      ),
+      GoRoute(
+        path: RouterEnum.settingsView.routeName,
+        pageBuilder: (context, state) =>
+            customPageBuilderWidget(context, state, const SettingsView()),
       ),
     ],
   );

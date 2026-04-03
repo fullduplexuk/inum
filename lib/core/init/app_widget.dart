@@ -5,9 +5,13 @@ import 'package:inum/core/init/router/app_router.dart';
 import 'package:inum/presentation/blocs/auth_session/auth_session_cubit.dart';
 import 'package:inum/presentation/blocs/call/call_cubit.dart';
 import 'package:inum/presentation/blocs/call/call_state.dart';
+import 'package:inum/presentation/blocs/call_history/call_history_cubit.dart';
 import 'package:inum/presentation/blocs/channel_list/channel_list_cubit.dart';
 import 'package:inum/presentation/blocs/chat_session/chat_session_cubit.dart';
 import 'package:inum/presentation/blocs/connectivity/connectivity_cubit.dart';
+import 'package:inum/presentation/blocs/contacts/contacts_cubit.dart';
+import 'package:inum/presentation/blocs/theme/theme_cubit.dart';
+import 'package:inum/presentation/blocs/theme/theme_state.dart';
 import 'package:inum/presentation/design_system/theme.dart';
 import 'package:inum/presentation/views/call/incoming_call_screen.dart';
 
@@ -33,16 +37,29 @@ class AppWidget extends StatelessWidget {
         BlocProvider<CallCubit>(
           create: (_) => getIt<CallCubit>(),
         ),
+        BlocProvider<CallHistoryCubit>(
+          create: (_) => getIt<CallHistoryCubit>(),
+        ),
+        BlocProvider<ContactsCubit>(
+          create: (_) => getIt<ContactsCubit>(),
+        ),
+        BlocProvider<ThemeCubit>(
+          create: (_) => ThemeCubit(),
+        ),
       ],
-      child: MaterialApp.router(
-        title: 'INUM',
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.lightTheme,
-        darkTheme: AppTheme.darkTheme,
-        themeMode: ThemeMode.system,
-        routerConfig: AppRouter.router,
-        builder: (context, child) {
-          return _IncomingCallOverlay(child: child ?? const SizedBox.shrink());
+      child: BlocBuilder<ThemeCubit, ThemeState>(
+        builder: (context, themeState) {
+          return MaterialApp.router(
+            title: 'INUM',
+            debugShowCheckedModeBanner: false,
+            theme: AppTheme.lightTheme,
+            darkTheme: AppTheme.darkTheme,
+            themeMode: themeState.themeMode,
+            routerConfig: AppRouter.router,
+            builder: (context, child) {
+              return _IncomingCallOverlay(child: child ?? const SizedBox.shrink());
+            },
+          );
         },
       ),
     );

@@ -7,13 +7,17 @@ import 'package:inum/data/api/livekit/livekit_service.dart';
 import 'package:inum/data/api/mattermost/mattermost_api_client.dart';
 import 'package:inum/data/api/mattermost/mattermost_ws_client.dart';
 import 'package:inum/data/repository/auth/auth_repository.dart';
+import 'package:inum/data/repository/call/call_history_repository.dart';
 import 'package:inum/data/repository/chat/chat_repository.dart';
 import 'package:inum/data/repository/connectivity/connectivity_repository.dart';
+import 'package:inum/data/repository/offline/offline_repository.dart';
 import 'package:inum/presentation/blocs/auth_session/auth_session_cubit.dart';
 import 'package:inum/presentation/blocs/call/call_cubit.dart';
+import 'package:inum/presentation/blocs/call_history/call_history_cubit.dart';
 import 'package:inum/presentation/blocs/channel_list/channel_list_cubit.dart';
 import 'package:inum/presentation/blocs/chat_session/chat_session_cubit.dart';
 import 'package:inum/presentation/blocs/connectivity/connectivity_cubit.dart';
+import 'package:inum/presentation/blocs/contacts/contacts_cubit.dart';
 
 final getIt = GetIt.instance;
 
@@ -37,6 +41,16 @@ Future<void> setupDependencies() async {
     () => ConnectivityRepository(Connectivity()),
   );
 
+  // Call History Repository (SQLite-backed)
+  final callHistoryRepo = CallHistoryRepository();
+  await callHistoryRepo.init();
+  getIt.registerLazySingleton<ICallHistoryRepository>(() => callHistoryRepo);
+
+  // Offline Repository (SQLite-backed)
+  final offlineRepo = OfflineRepository();
+  await offlineRepo.init();
+  getIt.registerLazySingleton<OfflineRepository>(() => offlineRepo);
+
   // Cubits
   getIt.registerFactory<AuthSessionCubit>(
     () => AuthSessionCubit(authRepository: getIt<IAuthRepository>()),
@@ -55,5 +69,11 @@ Future<void> setupDependencies() async {
       liveKitService: getIt<LiveKitService>(),
       wsClient: getIt<MattermostWsClient>(),
     ),
+  );
+  getIt.registerFactory<CallHistoryCubit>(
+    () => CallHistoryCubit(repository: getIt<ICallHistoryRepository>()),
+  );
+  getIt.registerFactory<ContactsCubit>(
+    () => ContactsCubit(apiClient: getIt<MattermostApiClient>()),
   );
 }
