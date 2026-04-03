@@ -175,14 +175,41 @@ class _ActiveCallView extends StatelessWidget {
             // Main content area
             Column(
               children: [
-                // Top bar: timer + name + quality
+                // Top bar: timer + name + quality + recording indicator
                 _TopBar(
                   duration: _formatDuration(state.elapsed),
                   participants: participants,
                   connectionIcon: participants.isNotEmpty
                       ? _connectionIcon(participants.first.connectionQuality)
                       : null,
+                  isRecording: state.isRecording,
                 ),
+                // Recording banner
+                if (state.isRecording)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    color: Colors.red.withAlpha(40),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.fiber_manual_record,
+                            color: Colors.red, size: 12),
+                        SizedBox(width: 6),
+                        Text(
+                          'This call is being recorded',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 // Participant area
                 Expanded(
                   child: isVideo
@@ -191,6 +218,17 @@ class _ActiveCallView extends StatelessWidget {
                 ),
               ],
             ),
+            // Live captions overlay
+            if (state.liveCaptionsEnabled && state.liveCaptions.isNotEmpty)
+              Positioned(
+                left: 16,
+                right: 16,
+                bottom: 120,
+                child: _LiveCaptionsOverlay(
+                  captions: state.liveCaptions,
+                  translationEnabled: state.translationEnabled,
+                ),
+              ),
             // Bottom toolbar
             Positioned(
               left: 0,
@@ -205,15 +243,136 @@ class _ActiveCallView extends StatelessWidget {
   }
 }
 
+// ── Recording indicator (pulsing) ───────────────────────────────────────────
+
+class _RecordingIndicator extends StatefulWidget {
+  const _RecordingIndicator();
+
+  @override
+  State<_RecordingIndicator> createState() => _RecordingIndicatorState();
+}
+
+class _RecordingIndicatorState extends State<_RecordingIndicator>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: Colors.red.withAlpha((180 + 75 * _controller.value).toInt()),
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.fiber_manual_record,
+                  color: Colors.white, size: 10),
+              SizedBox(width: 4),
+              Text(
+                'REC',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ── Live captions overlay ───────────────────────────────────────────────────
+
+class _LiveCaptionsOverlay extends StatelessWidget {
+  final List<LiveCaption> captions;
+  final bool translationEnabled;
+
+  const _LiveCaptionsOverlay({
+    required this.captions,
+    required this.translationEnabled,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // Only show captions from the last 5 seconds
+    final now = DateTime.now();
+    final recentCaptions = captions
+        .where((c) => now.difference(c.receivedAt).inSeconds < 5)
+        .toList();
+
+    if (recentCaptions.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withAlpha(180),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: recentCaptions.map((caption) {
+          final displayText = translationEnabled &&
+                  caption.translatedText != null &&
+                  caption.translatedText!.isNotEmpty
+              ? '${caption.speakerName} '
+                '(${caption.sourceLanguage ?? "?"} -> '
+                '${caption.targetLanguage ?? "?"}): '
+                '${caption.translatedText}'
+              : '${caption.speakerName}: ${caption.text}';
+
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Text(
+              displayText,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                height: 1.3,
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+}
+
 class _TopBar extends StatelessWidget {
   final String duration;
   final List<CallParticipant> participants;
   final Widget? connectionIcon;
+  final bool isRecording;
 
   const _TopBar({
     required this.duration,
     required this.participants,
     this.connectionIcon,
+    this.isRecording = false,
   });
 
   @override
@@ -252,6 +411,7 @@ class _TopBar extends StatelessWidget {
               ],
             ),
           ),
+          if (isRecording) const _RecordingIndicator(),
         ],
       ),
     );
@@ -434,7 +594,7 @@ class _BottomToolbar extends StatelessWidget {
     final cubit = context.read<CallCubit>();
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 24),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
@@ -445,52 +605,88 @@ class _BottomToolbar extends StatelessWidget {
           ],
         ),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          _CallActionButton(
-            icon: state.isAudioEnabled ? Icons.mic : Icons.mic_off,
-            color: state.isAudioEnabled ? Colors.white24 : Colors.red,
-            label: state.isAudioEnabled ? 'Mute' : 'Unmute',
-            onPressed: cubit.toggleAudio,
+          // Primary row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _CallActionButton(
+                icon: state.isAudioEnabled ? Icons.mic : Icons.mic_off,
+                color: state.isAudioEnabled ? Colors.white24 : Colors.red,
+                label: state.isAudioEnabled ? 'Mute' : 'Unmute',
+                onPressed: cubit.toggleAudio,
+              ),
+              _CallActionButton(
+                icon: state.isVideoEnabled
+                    ? Icons.videocam
+                    : Icons.videocam_off,
+                color: state.isVideoEnabled ? Colors.white24 : Colors.red,
+                label: 'Camera',
+                onPressed: cubit.toggleVideo,
+              ),
+              _CallActionButton(
+                icon: state.isSpeakerOn
+                    ? Icons.volume_up
+                    : Icons.volume_down,
+                color: state.isSpeakerOn ? inumSecondary : Colors.white24,
+                label: 'Speaker',
+                onPressed: cubit.toggleSpeaker,
+              ),
+              if (state.isVideoEnabled)
+                _CallActionButton(
+                  icon: Icons.cameraswitch,
+                  color: Colors.white24,
+                  label: 'Flip',
+                  onPressed: cubit.switchCamera,
+                ),
+              _CallActionButton(
+                icon: state.isScreenSharing
+                    ? Icons.stop_screen_share
+                    : Icons.screen_share,
+                color:
+                    state.isScreenSharing ? inumSecondary : Colors.white24,
+                label: 'Share',
+                onPressed: cubit.toggleScreenShare,
+              ),
+            ],
           ),
-          _CallActionButton(
-            icon: state.isVideoEnabled
-                ? Icons.videocam
-                : Icons.videocam_off,
-            color: state.isVideoEnabled ? Colors.white24 : Colors.red,
-            label: 'Camera',
-            onPressed: cubit.toggleVideo,
-          ),
-          _CallActionButton(
-            icon: state.isSpeakerOn
-                ? Icons.volume_up
-                : Icons.volume_down,
-            color: state.isSpeakerOn ? inumSecondary : Colors.white24,
-            label: 'Speaker',
-            onPressed: cubit.toggleSpeaker,
-          ),
-          if (state.isVideoEnabled)
-            _CallActionButton(
-              icon: Icons.cameraswitch,
-              color: Colors.white24,
-              label: 'Flip',
-              onPressed: cubit.switchCamera,
-            ),
-          _CallActionButton(
-            icon: state.isScreenSharing
-                ? Icons.stop_screen_share
-                : Icons.screen_share,
-            color:
-                state.isScreenSharing ? inumSecondary : Colors.white24,
-            label: 'Share',
-            onPressed: cubit.toggleScreenShare,
-          ),
-          _CallActionButton(
-            icon: Icons.call_end,
-            color: Colors.red,
-            label: 'End',
-            onPressed: () => cubit.endCall(),
+          const SizedBox(height: 12),
+          // Secondary row: Record, CC, End
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _CallActionButton(
+                icon: Icons.fiber_manual_record,
+                color: state.isRecording ? Colors.red : Colors.white24,
+                label: state.isRecording ? 'Stop Rec' : 'Record',
+                onPressed: cubit.toggleRecording,
+              ),
+              _CallActionButton(
+                icon: Icons.closed_caption,
+                color: state.liveCaptionsEnabled
+                    ? inumSecondary
+                    : Colors.white24,
+                label: 'CC',
+                onPressed: cubit.toggleLiveCaptions,
+              ),
+              if (state.liveCaptionsEnabled)
+                _CallActionButton(
+                  icon: Icons.translate,
+                  color: state.translationEnabled
+                      ? inumSecondary
+                      : Colors.white24,
+                  label: 'Translate',
+                  onPressed: cubit.toggleTranslation,
+                ),
+              _CallActionButton(
+                icon: Icons.call_end,
+                color: Colors.red,
+                label: 'End',
+                onPressed: () => cubit.endCall(),
+              ),
+            ],
           ),
         ],
       ),

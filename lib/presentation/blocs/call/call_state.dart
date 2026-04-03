@@ -1,6 +1,35 @@
 import 'package:equatable/equatable.dart';
 import 'package:inum/domain/models/call/call_model.dart';
 
+/// Represents a live caption entry received during a call.
+class LiveCaption extends Equatable {
+  final String speakerName;
+  final String text;
+  final String? translatedText;
+  final String? sourceLanguage;
+  final String? targetLanguage;
+  final DateTime receivedAt;
+
+  const LiveCaption({
+    required this.speakerName,
+    required this.text,
+    this.translatedText,
+    this.sourceLanguage,
+    this.targetLanguage,
+    required this.receivedAt,
+  });
+
+  @override
+  List<Object?> get props => [
+        speakerName,
+        text,
+        translatedText,
+        sourceLanguage,
+        targetLanguage,
+        receivedAt,
+      ];
+}
+
 sealed class CallState extends Equatable {
   const CallState();
 
@@ -36,6 +65,10 @@ class CallActive extends CallState {
   final bool isSpeakerOn;
   final bool isScreenSharing;
   final Duration elapsed;
+  final bool isRecording;
+  final bool liveCaptionsEnabled;
+  final List<LiveCaption> liveCaptions;
+  final bool translationEnabled;
 
   const CallActive({
     required this.callModel,
@@ -45,6 +78,10 @@ class CallActive extends CallState {
     this.isSpeakerOn = false,
     this.isScreenSharing = false,
     this.elapsed = Duration.zero,
+    this.isRecording = false,
+    this.liveCaptionsEnabled = false,
+    this.liveCaptions = const [],
+    this.translationEnabled = false,
   });
 
   CallActive copyWith({
@@ -55,6 +92,10 @@ class CallActive extends CallState {
     bool? isSpeakerOn,
     bool? isScreenSharing,
     Duration? elapsed,
+    bool? isRecording,
+    bool? liveCaptionsEnabled,
+    List<LiveCaption>? liveCaptions,
+    bool? translationEnabled,
   }) {
     return CallActive(
       callModel: callModel ?? this.callModel,
@@ -64,6 +105,10 @@ class CallActive extends CallState {
       isSpeakerOn: isSpeakerOn ?? this.isSpeakerOn,
       isScreenSharing: isScreenSharing ?? this.isScreenSharing,
       elapsed: elapsed ?? this.elapsed,
+      isRecording: isRecording ?? this.isRecording,
+      liveCaptionsEnabled: liveCaptionsEnabled ?? this.liveCaptionsEnabled,
+      liveCaptions: liveCaptions ?? this.liveCaptions,
+      translationEnabled: translationEnabled ?? this.translationEnabled,
     );
   }
 
@@ -76,6 +121,10 @@ class CallActive extends CallState {
         isSpeakerOn,
         isScreenSharing,
         elapsed,
+        isRecording,
+        liveCaptionsEnabled,
+        liveCaptions,
+        translationEnabled,
       ];
 }
 

@@ -8,7 +8,12 @@ enum RouterEnum {
   callView('/call'),
   callHistoryView('/call-history'),
   voicemailView('/voicemail'),
-  contactsView('/contacts');
+  contactsView('/contacts'),
+  recordingsView('/recordings'),
+  recordingDetailView('/recordings/:id'),
+  transcriptView('/transcript/:id'),
+  callSummaryView('/call-summary/:id'),
+  languageSettingsView('/settings/language');
 
   final String routeName;
   const RouterEnum(this.routeName);

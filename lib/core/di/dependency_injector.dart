@@ -8,6 +8,7 @@ import 'package:inum/data/api/mattermost/mattermost_api_client.dart';
 import 'package:inum/data/api/mattermost/mattermost_ws_client.dart';
 import 'package:inum/data/repository/auth/auth_repository.dart';
 import 'package:inum/data/repository/call/call_history_repository.dart';
+import 'package:inum/data/repository/call/recordings_repository.dart';
 import 'package:inum/data/repository/chat/chat_repository.dart';
 import 'package:inum/data/repository/connectivity/connectivity_repository.dart';
 import 'package:inum/data/repository/offline/offline_repository.dart';
@@ -18,6 +19,7 @@ import 'package:inum/presentation/blocs/channel_list/channel_list_cubit.dart';
 import 'package:inum/presentation/blocs/chat_session/chat_session_cubit.dart';
 import 'package:inum/presentation/blocs/connectivity/connectivity_cubit.dart';
 import 'package:inum/presentation/blocs/contacts/contacts_cubit.dart';
+import 'package:inum/presentation/blocs/recordings/recordings_cubit.dart';
 
 final getIt = GetIt.instance;
 
@@ -45,6 +47,11 @@ Future<void> setupDependencies() async {
   final callHistoryRepo = CallHistoryRepository();
   await callHistoryRepo.init();
   getIt.registerLazySingleton<ICallHistoryRepository>(() => callHistoryRepo);
+
+  // Recordings Repository (SQLite-backed)
+  final recordingsRepo = RecordingsRepository();
+  await recordingsRepo.init();
+  getIt.registerLazySingleton<IRecordingsRepository>(() => recordingsRepo);
 
   // Offline Repository (SQLite-backed)
   final offlineRepo = OfflineRepository();
@@ -75,5 +82,8 @@ Future<void> setupDependencies() async {
   );
   getIt.registerFactory<ContactsCubit>(
     () => ContactsCubit(apiClient: getIt<MattermostApiClient>()),
+  );
+  getIt.registerFactory<RecordingsCubit>(
+    () => RecordingsCubit(repository: getIt<IRecordingsRepository>()),
   );
 }

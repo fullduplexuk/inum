@@ -123,6 +123,27 @@ class _SettingsViewState extends State<SettingsView> {
 
               const Divider(),
 
+              // --- Recordings & Transcription Section ---
+              const _SectionHeader(title: 'Recordings & Transcription'),
+              ListTile(
+                leading: const Icon(Icons.videocam_outlined),
+                title: const Text('Recordings'),
+                subtitle: const Text('View recorded calls'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () =>
+                    context.push(RouterEnum.recordingsView.routeName),
+              ),
+              ListTile(
+                leading: const Icon(Icons.translate),
+                title: const Text('Language & Translation'),
+                subtitle: const Text('Live translation preferences'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () =>
+                    context.push(RouterEnum.languageSettingsView.routeName),
+              ),
+
+              const Divider(),
+
               // --- About Section ---
               const _SectionHeader(title: 'About'),
               const ListTile(

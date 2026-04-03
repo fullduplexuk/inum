@@ -10,6 +10,7 @@ import 'package:inum/presentation/blocs/channel_list/channel_list_cubit.dart';
 import 'package:inum/presentation/blocs/chat_session/chat_session_cubit.dart';
 import 'package:inum/presentation/blocs/connectivity/connectivity_cubit.dart';
 import 'package:inum/presentation/blocs/contacts/contacts_cubit.dart';
+import 'package:inum/presentation/blocs/recordings/recordings_cubit.dart';
 import 'package:inum/presentation/blocs/theme/theme_cubit.dart';
 import 'package:inum/presentation/blocs/theme/theme_state.dart';
 import 'package:inum/presentation/design_system/theme.dart';
@@ -42,6 +43,9 @@ class AppWidget extends StatelessWidget {
         ),
         BlocProvider<ContactsCubit>(
           create: (_) => getIt<ContactsCubit>(),
+        ),
+        BlocProvider<RecordingsCubit>(
+          create: (_) => getIt<RecordingsCubit>(),
         ),
         BlocProvider<ThemeCubit>(
           create: (_) => ThemeCubit(),

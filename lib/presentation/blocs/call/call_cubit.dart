@@ -292,6 +292,70 @@ class CallCubit extends Cubit<CallState> {
     emit(currentState.copyWith(isScreenSharing: !currentState.isScreenSharing));
   }
 
+  /// Toggle call recording on/off.
+  void toggleRecording() {
+    final currentState = state;
+    if (currentState is! CallActive) return;
+    // Placeholder: will send Egress start/stop request to LiveKit server
+    emit(currentState.copyWith(isRecording: !currentState.isRecording));
+    debugPrint(
+      'Recording ${currentState.isRecording ? "stopped" : "started"} '
+      '(placeholder - Egress not deployed yet)',
+    );
+  }
+
+  /// Toggle live captions (closed captioning) on/off.
+  void toggleLiveCaptions() {
+    final currentState = state;
+    if (currentState is! CallActive) return;
+    emit(currentState.copyWith(
+      liveCaptionsEnabled: !currentState.liveCaptionsEnabled,
+    ));
+    debugPrint(
+      'Live captions ${currentState.liveCaptionsEnabled ? "disabled" : "enabled"} '
+      '(placeholder - Agents not deployed yet)',
+    );
+  }
+
+  /// Toggle live translation on/off.
+  void toggleTranslation() {
+    final currentState = state;
+    if (currentState is! CallActive) return;
+    emit(currentState.copyWith(
+      translationEnabled: !currentState.translationEnabled,
+    ));
+  }
+
+  /// Receive a live caption from the LiveKit data channel (placeholder).
+  void onLiveCaptionReceived({
+    required String speakerName,
+    required String text,
+    String? translatedText,
+    String? sourceLanguage,
+    String? targetLanguage,
+  }) {
+    final currentState = state;
+    if (currentState is! CallActive) return;
+    if (!currentState.liveCaptionsEnabled) return;
+
+    final caption = LiveCaption(
+      speakerName: speakerName,
+      text: text,
+      translatedText: translatedText,
+      sourceLanguage: sourceLanguage,
+      targetLanguage: targetLanguage,
+      receivedAt: DateTime.now(),
+    );
+
+    // Keep only last 5 captions
+    final updated = [...currentState.liveCaptions, caption];
+    if (updated.length > 5) {
+      updated.removeRange(0, updated.length - 5);
+    }
+
+    emit(currentState.copyWith(liveCaptions: updated));
+  }
+
   void _sendCallSignal(String action, CallModel callModel) {
     try {
       _wsClient.sendCallSignal(action, callModel.toJson());

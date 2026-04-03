@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:inum/core/constants/enums/router_enum.dart';
 import 'package:inum/domain/models/call/call_record.dart';
 import 'package:inum/presentation/blocs/call_history/call_history_cubit.dart';
 import 'package:inum/presentation/blocs/call_history/call_history_state.dart';
@@ -158,6 +160,9 @@ class _CallRecordTile extends StatelessWidget {
         ? _formatDuration(record.durationSecs)
         : (isMissed ? 'Missed' : 'No answer');
 
+    final hasRecording = record.recordingUrl != null &&
+        record.recordingUrl!.isNotEmpty;
+
     return ListTile(
       leading: CircleAvatar(
         backgroundColor: inumPrimary.withAlpha(30),
@@ -185,11 +190,38 @@ class _CallRecordTile extends StatelessWidget {
               color: isMissed ? errorColor : secondaryTextColor,
             ),
           ),
+          if (hasRecording) ...[
+            const SizedBox(width: 8),
+            const Icon(Icons.videocam, size: 14, color: inumSecondary),
+          ],
+          if (record.transcriptUrl != null) ...[
+            const SizedBox(width: 4),
+            const Icon(Icons.subtitles, size: 14, color: inumSecondary),
+          ],
         ],
       ),
-      trailing: Text(
-        timeStr,
-        style: const TextStyle(fontSize: 12, color: customGreyColor600),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (hasRecording)
+            IconButton(
+              icon: const Icon(Icons.play_circle_outline,
+                  color: inumSecondary, size: 22),
+              tooltip: 'View recording',
+              onPressed: () {
+                context.push(
+                  '${RouterEnum.recordingsView.routeName}/${record.roomId}',
+                );
+              },
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+            ),
+          const SizedBox(width: 8),
+          Text(
+            timeStr,
+            style: const TextStyle(fontSize: 12, color: customGreyColor600),
+          ),
+        ],
       ),
       onTap: () {
         // Future: call detail / call back
