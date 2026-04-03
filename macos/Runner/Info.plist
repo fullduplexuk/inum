@@ -28,5 +28,9 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSCameraUsageDescription</key>
+	<string>INUM needs camera access for video calls</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>INUM needs microphone access for audio and video calls</string>
 </dict>
 </plist>

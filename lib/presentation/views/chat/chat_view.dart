@@ -10,6 +10,10 @@ import 'package:inum/core/di/dependency_injector.dart';
 import 'package:inum/domain/models/chat/message_model.dart';
 import 'package:inum/presentation/design_system/colors.dart';
 import 'package:inum/presentation/design_system/widgets/user_avatar.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
+import 'package:inum/presentation/blocs/call/call_cubit.dart';
+import 'package:inum/core/constants/enums/router_enum.dart';
 
 // Emoji name to unicode mapping for common reactions
 const Map<String, String> kEmojiMap = {
@@ -502,6 +506,28 @@ class _ChatViewState extends State<ChatView> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.channelName.isNotEmpty ? widget.channelName : 'Chat'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.call, size: 22),
+            tooltip: 'Audio call',
+            onPressed: () {
+              context.read<CallCubit>().initiateCall(widget.channelId);
+              context.push(RouterEnum.callView.routeName);
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.videocam, size: 22),
+            tooltip: 'Video call',
+            onPressed: () {
+              context.read<CallCubit>().initiateCall(
+                    widget.channelId,
+                    isVideo: true,
+                  );
+              context.push(RouterEnum.callView.routeName);
+            },
+          ),
+          const SizedBox(width: 4),
+        ],
       ),
       body: Column(
         children: [

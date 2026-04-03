@@ -141,6 +141,25 @@ class MattermostWsClient {
     }
   }
 
+  /// Send a call signaling event through the WebSocket.
+  ///
+  /// [action] is one of: custom_call_invite, custom_call_accept,
+  /// custom_call_reject, custom_call_end.
+  /// [callData] is the serialized CallModel JSON.
+  void sendCallSignal(String action, Map<String, dynamic> callData) {
+    if (_channel == null) return;
+    try {
+      _channel!.sink.add(jsonEncode({
+        'seq': _seq++,
+        'action': action,
+        'data': {'call': jsonEncode(callData)},
+      }));
+      debugPrint('WS call signal sent: $action');
+    } catch (e) {
+      debugPrint('WS call signal error: $e');
+    }
+  }
+
   void _cleanup() {
     _pingTimer?.cancel();
     _pingTimer = null;

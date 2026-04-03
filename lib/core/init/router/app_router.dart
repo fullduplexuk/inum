@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:inum/core/constants/enums/router_enum.dart';
 import 'package:inum/core/init/router/custom_page_builder_widget.dart';
 import 'package:inum/presentation/views/bottom_tab/bottom_tab_view.dart';
+import 'package:inum/presentation/views/call/call_screen.dart';
 import 'package:inum/presentation/views/chat/chat_view.dart';
 import 'package:inum/presentation/views/landing/landing_view.dart';
 import 'package:inum/presentation/views/sign_in/sign_in_view.dart';
@@ -47,6 +48,11 @@ class AppRouter {
         path: RouterEnum.profileView.routeName,
         pageBuilder: (context, state) =>
             customPageBuilderWidget(context, state, const BottomTabView(initialTab: 3)),
+      ),
+      GoRoute(
+        path: RouterEnum.callView.routeName,
+        pageBuilder: (context, state) =>
+            customPageBuilderWidget(context, state, const CallScreen()),
       ),
     ],
   );

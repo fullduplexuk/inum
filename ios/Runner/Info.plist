@@ -43,6 +43,10 @@
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Need to use photo library</string>
+	<key>NSCameraUsageDescription</key>
+	<string>INUM needs camera access for video calls</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>INUM needs microphone access for audio and video calls</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

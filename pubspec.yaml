@@ -53,6 +53,9 @@ dependencies:
   # File picking
   file_picker: ^8.0.0
 
+  # LiveKit calling
+  livekit_client: ^2.3.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

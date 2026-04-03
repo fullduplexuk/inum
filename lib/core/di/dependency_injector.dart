@@ -3,12 +3,14 @@ import 'package:get_it/get_it.dart';
 import 'package:inum/core/interfaces/i_auth_repository.dart';
 import 'package:inum/core/interfaces/i_chat_repository.dart';
 import 'package:inum/core/interfaces/i_connectivity_repository.dart';
+import 'package:inum/data/api/livekit/livekit_service.dart';
 import 'package:inum/data/api/mattermost/mattermost_api_client.dart';
 import 'package:inum/data/api/mattermost/mattermost_ws_client.dart';
 import 'package:inum/data/repository/auth/auth_repository.dart';
 import 'package:inum/data/repository/chat/chat_repository.dart';
 import 'package:inum/data/repository/connectivity/connectivity_repository.dart';
 import 'package:inum/presentation/blocs/auth_session/auth_session_cubit.dart';
+import 'package:inum/presentation/blocs/call/call_cubit.dart';
 import 'package:inum/presentation/blocs/channel_list/channel_list_cubit.dart';
 import 'package:inum/presentation/blocs/chat_session/chat_session_cubit.dart';
 import 'package:inum/presentation/blocs/connectivity/connectivity_cubit.dart';
@@ -19,6 +21,7 @@ Future<void> setupDependencies() async {
   // API Clients
   getIt.registerLazySingleton<MattermostApiClient>(() => MattermostApiClient());
   getIt.registerLazySingleton<MattermostWsClient>(() => MattermostWsClient());
+  getIt.registerLazySingleton<LiveKitService>(() => LiveKitService());
 
   // Repositories
   getIt.registerLazySingleton<IAuthRepository>(
@@ -46,5 +49,11 @@ Future<void> setupDependencies() async {
   );
   getIt.registerFactory<ConnectivityCubit>(
     () => ConnectivityCubit(),
+  );
+  getIt.registerFactory<CallCubit>(
+    () => CallCubit(
+      liveKitService: getIt<LiveKitService>(),
+      wsClient: getIt<MattermostWsClient>(),
+    ),
   );
 }

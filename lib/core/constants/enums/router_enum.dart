@@ -4,7 +4,8 @@ enum RouterEnum {
   dashboardView('/dashboard'),
   chatView('/chat'),
   profileView('/profile'),
-  settingsView('/settings');
+  settingsView('/settings'),
+  callView('/call');
 
   final String routeName;
   const RouterEnum(this.routeName);
