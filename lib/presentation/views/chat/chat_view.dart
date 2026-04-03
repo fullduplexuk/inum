@@ -14,6 +14,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:inum/presentation/blocs/call/call_cubit.dart';
 import 'package:inum/core/constants/enums/router_enum.dart';
+import 'package:inum/presentation/views/chat/widgets/voice_message_recorder.dart';
+import 'package:inum/presentation/views/chat/widgets/voice_message_player.dart';
+import 'package:inum/presentation/views/chat/widgets/sticker_picker.dart';
 
 // Emoji name to unicode mapping for common reactions
 const Map<String, String> kEmojiMap = {
@@ -90,6 +93,10 @@ class _ChatViewState extends State<ChatView> {
   // File upload
   bool _isUploading = false;
   List<String> _pendingFileIds = [];
+  // Phase 8: Expanded actions, sticker picker, voice recording
+  bool _showExpandedActions = false;
+  bool _showStickerPicker = false;
+  bool _isVoiceRecording = false;
 
   late final IChatRepository _chatRepo;
 
@@ -391,6 +398,56 @@ class _ChatViewState extends State<ChatView> {
     }
   }
 
+  Future<void> _pinMessage(MessageModel msg) async {
+    try {
+      await _chatRepo.pinMessage(msg.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Message pinned'), duration: Duration(seconds: 1)),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to pin: $e')),
+        );
+      }
+    }
+  }
+
+  void _showPinnedMessages() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.6, minChildSize: 0.3, maxChildSize: 0.9, expand: false,
+        builder: (ctx, scrollController) => _PinnedMessagesSheet(
+          channelId: widget.channelId, chatRepo: _chatRepo, scrollController: scrollController),
+      ),
+    );
+  }
+
+  void _insertEmoji(String emoji) {
+    final text = _messageController.text;
+    final selection = _messageController.selection;
+    final newText = text.replaceRange(
+      selection.start >= 0 ? selection.start : text.length,
+      selection.end >= 0 ? selection.end : text.length,
+      emoji,
+    );
+    _messageController.text = newText;
+    _messageController.selection = TextSelection.collapsed(
+      offset: (selection.start >= 0 ? selection.start : text.length) + emoji.length,
+    );
+    setState(() => _showStickerPicker = false);
+  }
+
+  void _sendSticker(String sticker) {
+    _chatRepo.sendMessage(widget.channelId, sticker);
+    setState(() => _showStickerPicker = false);
+  }
+
   void _showMessageActions(MessageModel msg) {
     final isOwn = msg.userId == _chatRepo.currentUserId;
     showModalBottomSheet(
@@ -451,6 +508,15 @@ class _ChatViewState extends State<ChatView> {
               onTap: () {
                 Navigator.pop(ctx);
                 _openThread(msg);
+              },
+            ),
+            // Pin message
+            ListTile(
+              leading: const Icon(Icons.push_pin_outlined),
+              title: const Text('Pin Message'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pinMessage(msg);
               },
             ),
             if (isOwn) ...[
@@ -514,6 +580,11 @@ class _ChatViewState extends State<ChatView> {
               context.read<CallCubit>().initiateCall(widget.channelId);
               context.push(RouterEnum.callView.routeName);
             },
+          ),
+          IconButton(
+            icon: const Icon(Icons.push_pin_outlined, size: 20),
+            tooltip: 'Pinned messages',
+            onPressed: _showPinnedMessages,
           ),
           IconButton(
             icon: const Icon(Icons.videocam, size: 22),
@@ -624,6 +695,32 @@ class _ChatViewState extends State<ChatView> {
                 ],
               ),
             ),
+          // Sticker picker panel
+          if (_showStickerPicker)
+            StickerPicker(
+              onEmojiSelected: _insertEmoji,
+              onStickerSelected: _sendSticker,
+              onClose: () => setState(() => _showStickerPicker = false),
+            ),
+          // Expanded action buttons
+          if (_showExpandedActions)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: Theme.of(context).scaffoldBackgroundColor,
+                border: Border(top: BorderSide(color: customGreyColor200)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _ActionButton(icon: Icons.camera_alt, label: 'Camera', onTap: () { setState(() => _showExpandedActions = false); _pickAndUploadFile(); }),
+                  _ActionButton(icon: Icons.photo_library, label: 'Gallery', onTap: () { setState(() => _showExpandedActions = false); _pickAndUploadFile(); }),
+                  _ActionButton(icon: Icons.insert_drive_file, label: 'File', onTap: () { setState(() => _showExpandedActions = false); _pickAndUploadFile(); }),
+                  _ActionButton(icon: Icons.mic, label: 'Voice', onTap: () { setState(() { _showExpandedActions = false; _isVoiceRecording = true; }); }),
+                  _ActionButton(icon: Icons.emoji_emotions, label: 'Sticker', onTap: () { setState(() { _showExpandedActions = false; _showStickerPicker = !_showStickerPicker; }); }),
+                ],
+              ),
+            ),
           // Message input
           Container(
             decoration: BoxDecoration(
@@ -640,40 +737,66 @@ class _ChatViewState extends State<ChatView> {
               left: 8, right: 4, top: 8,
               bottom: MediaQuery.of(context).padding.bottom + 8,
             ),
-            child: Row(
-              children: [
-                // File attachment button
-                IconButton(
-                  onPressed: _isUploading ? null : _pickAndUploadFile,
-                  icon: _isUploading
-                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Icon(Icons.attach_file),
-                  color: customGreyColor600,
-                  iconSize: 22,
-                ),
-                Expanded(
-                  child: TextField(
-                    controller: _messageController,
-                    onChanged: _onTextChanged,
-                    decoration: InputDecoration(
-                      hintText: _editingPostId != null ? 'Edit message...' : 'Type a message...',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(24)),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: _isVoiceRecording
+                ? Row(children: [
+                    Expanded(
+                      child: VoiceMessageRecorder(
+                        onRecordingComplete: (path, duration) {
+                          setState(() => _isVoiceRecording = false);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Voice message recorded (upload pending)'), duration: Duration(seconds: 2)),
+                          );
+                        },
+                        onCancel: () => setState(() => _isVoiceRecording = false),
+                      ),
                     ),
-                    textInputAction: TextInputAction.send,
-                    onSubmitted: (_) => _sendMessage(),
-                    maxLines: 4,
-                    minLines: 1,
+                    IconButton(onPressed: () => setState(() => _isVoiceRecording = false),
+                      icon: const Icon(Icons.close), color: errorColor),
+                  ])
+                : Row(
+                    children: [
+                      // Expand actions button
+                      IconButton(
+                        onPressed: () => setState(() { _showExpandedActions = !_showExpandedActions; _showStickerPicker = false; }),
+                        icon: AnimatedRotation(
+                          turns: _showExpandedActions ? 0.125 : 0,
+                          duration: const Duration(milliseconds: 200),
+                          child: const Icon(Icons.add_circle_outline),
+                        ),
+                        color: inumPrimary,
+                        iconSize: 24,
+                      ),
+                      Expanded(
+                        child: TextField(
+                          controller: _messageController,
+                          onChanged: _onTextChanged,
+                          onTap: () { if (_showExpandedActions) setState(() => _showExpandedActions = false); },
+                          decoration: InputDecoration(
+                            hintText: _editingPostId != null ? 'Edit message...' : 'Type a message...',
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(24)),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          ),
+                          textInputAction: TextInputAction.send,
+                          onSubmitted: (_) => _sendMessage(),
+                          maxLines: 4,
+                          minLines: 1,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      // Emoji quick toggle
+                      IconButton(
+                        onPressed: () => setState(() { _showStickerPicker = !_showStickerPicker; _showExpandedActions = false; }),
+                        icon: const Icon(Icons.emoji_emotions_outlined),
+                        color: customGreyColor600,
+                        iconSize: 22,
+                      ),
+                      IconButton(
+                        onPressed: _sendMessage,
+                        icon: Icon(_editingPostId != null ? Icons.check : Icons.send),
+                        color: inumPrimary,
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(width: 4),
-                IconButton(
-                  onPressed: _sendMessage,
-                  icon: Icon(_editingPostId != null ? Icons.check : Icons.send),
-                  color: inumPrimary,
-                ),
-              ],
-            ),
           ),
         ],
       ),
@@ -1238,6 +1361,111 @@ class _ThreadViewState extends State<_ThreadView> {
               ),
             ],
           ),
+        ),
+      ],
+    );
+  }
+}
+
+// --- Phase 8: Action Button for expanded input ---
+
+class _ActionButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _ActionButton({required this.icon, required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 48, height: 48,
+            decoration: BoxDecoration(color: inumPrimary.withAlpha(20), shape: BoxShape.circle),
+            child: Icon(icon, color: inumPrimary, size: 22),
+          ),
+          const SizedBox(height: 4),
+          Text(label, style: const TextStyle(fontSize: 11, color: customGreyColor600)),
+        ],
+      ),
+    );
+  }
+}
+
+// --- Phase 8: Pinned Messages Sheet ---
+
+class _PinnedMessagesSheet extends StatefulWidget {
+  final String channelId;
+  final IChatRepository chatRepo;
+  final ScrollController scrollController;
+
+  const _PinnedMessagesSheet({required this.channelId, required this.chatRepo, required this.scrollController});
+
+  @override
+  State<_PinnedMessagesSheet> createState() => _PinnedMessagesSheetState();
+}
+
+class _PinnedMessagesSheetState extends State<_PinnedMessagesSheet> {
+  List<MessageModel> _pinned = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPinned();
+  }
+
+  Future<void> _loadPinned() async {
+    try {
+      final msgs = await widget.chatRepo.getPinnedMessages(widget.channelId);
+      if (mounted) setState(() { _pinned = msgs; _isLoading = false; });
+    } catch (e) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Container(width: 36, height: 4, margin: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(color: customGreyColor400, borderRadius: BorderRadius.circular(2))),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(children: [
+            const Icon(Icons.push_pin, size: 20, color: inumPrimary),
+            const SizedBox(width: 8),
+            const Text('Pinned Messages', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+            const Spacer(),
+            Text('${_pinned.length}', style: const TextStyle(fontSize: 13, color: customGreyColor500)),
+          ]),
+        ),
+        const Divider(height: 16),
+        Expanded(
+          child: _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _pinned.isEmpty
+                  ? const Center(child: Text('No pinned messages', style: TextStyle(color: customGreyColor500)))
+                  : ListView.builder(
+                      controller: widget.scrollController,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      itemCount: _pinned.length,
+                      itemBuilder: (context, index) {
+                        final msg = _pinned[index];
+                        return Card(
+                          margin: const EdgeInsets.symmetric(vertical: 4),
+                          child: ListTile(
+                            leading: const Icon(Icons.push_pin, size: 18, color: inumSecondary),
+                            title: Text(msg.message, maxLines: 3, overflow: TextOverflow.ellipsis),
+                            subtitle: Text(DateFormat.yMd().add_jm().format(msg.createAt),
+                              style: const TextStyle(fontSize: 11, color: customGreyColor500)),
+                          ),
+                        );
+                      }),
         ),
       ],
     );

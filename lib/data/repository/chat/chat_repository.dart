@@ -204,4 +204,20 @@ class ChatRepository implements IChatRepository {
     _wsSubscription?.cancel();
     _channelsController.close();
   }
+
+  @override
+  Future<void> pinMessage(String postId) async {
+    await _apiClient.pinPost(postId);
+  }
+
+  @override
+  Future<void> unpinMessage(String postId) async {
+    await _apiClient.unpinPost(postId);
+  }
+
+  @override
+  Future<List<MessageModel>> getPinnedMessages(String channelId) async {
+    final rawPosts = await _apiClient.getPinnedPosts(channelId);
+    return rawPosts.map((p) => MessageModel.fromMattermost(p as Map<String, dynamic>)).toList();
+  }
 }

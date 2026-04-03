@@ -160,6 +160,29 @@ class _SettingsViewState extends State<SettingsView> {
                     context.push(RouterEnum.languageSettingsView.routeName),
               ),
 
+              // Phase 8: Notification Settings
+              ListTile(
+                leading: const Icon(Icons.notifications_active_outlined),
+                title: const Text('Notification Sounds'),
+                subtitle: const Text('Sounds, DND, per-contact'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () =>
+                    context.push(RouterEnum.notificationSettingsView.routeName),
+              ),
+
+              const Divider(),
+
+              // --- Security Section ---
+              const _SectionHeader(title: 'Security'),
+              ListTile(
+                leading: const Icon(Icons.qr_code_2),
+                title: const Text('QR Code Login'),
+                subtitle: const Text('Scan to login on other devices'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () =>
+                    context.push(RouterEnum.qrLoginView.routeName),
+              ),
+
               const Divider(),
 
               // --- About Section ---

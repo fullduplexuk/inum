@@ -19,7 +19,12 @@ enum RouterEnum {
   smsView('/sms'),
   smsConversationView('/sms/:number'),
   callForwardingView('/settings/call-forwarding'),
-  voicemailSettingsView('/settings/voicemail');
+  voicemailSettingsView('/settings/voicemail'),
+  // Phase 8
+  qrLoginView('/auth/qr-login'),
+  notificationSettingsView('/settings/notifications'),
+  scheduleMeetingView('/meetings/schedule'),
+  createChannelView('/channels/create');
 
   final String routeName;
   const RouterEnum(this.routeName);

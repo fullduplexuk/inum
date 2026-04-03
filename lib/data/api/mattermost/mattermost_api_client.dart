@@ -347,6 +347,28 @@ class MattermostApiClient {
   String getFilePreviewUrl(String fileId) => '$_baseUrl/api/v4/files/$fileId/preview';
   String getProfileImageUrl(String userId) => '$_baseUrl/api/v4/users/$userId/image';
 
+  // --- Pin/Unpin Posts ---
+
+  Future<Map<String, dynamic>> pinPost(String postId) async {
+    return _request('POST', '/posts/$postId/pin');
+  }
+
+  Future<Map<String, dynamic>> unpinPost(String postId) async {
+    return _request('POST', '/posts/$postId/unpin');
+  }
+
+  Future<List<dynamic>> getPinnedPosts(String channelId) async {
+    final result = await _request('GET', '/channels/$channelId/pinned');
+    final posts = result['posts'] as Map<String, dynamic>? ?? {};
+    return posts.values.toList();
+  }
+
+  // --- Channel Creation ---
+
+  Future<Map<String, dynamic>> createChannel(Map<String, dynamic> channelData) async {
+    return _request('POST', '/channels', body: channelData);
+  }
+
   void dispose() {
     _client.close();
   }

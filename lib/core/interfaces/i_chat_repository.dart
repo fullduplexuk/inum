@@ -31,4 +31,9 @@ abstract class IChatRepository {
   String? get currentUserId;
   String? get authToken;
   String getProfileImageUrl(String userId);
+
+  // Phase 8: Pin messages
+  Future<void> pinMessage(String postId);
+  Future<void> unpinMessage(String postId);
+  Future<List<MessageModel>> getPinnedMessages(String channelId);
 }

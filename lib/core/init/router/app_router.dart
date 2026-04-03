@@ -20,6 +20,11 @@ import 'package:inum/presentation/views/settings/voicemail_settings_view.dart';
 import 'package:inum/presentation/views/sign_in/sign_in_view.dart';
 import 'package:inum/presentation/views/sms/sms_view.dart';
 import 'package:inum/presentation/views/voicemail/voicemail_view.dart';
+// Phase 8 imports
+import 'package:inum/presentation/views/auth/qr_login_view.dart';
+import 'package:inum/presentation/views/settings/notification_settings_view.dart';
+import 'package:inum/presentation/views/meetings/schedule_meeting_view.dart';
+import 'package:inum/presentation/views/channels/create_channel_view.dart';
 
 class AppRouter {
   static final _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -201,6 +206,38 @@ class AppRouter {
         pageBuilder: (context, state) =>
             customPageBuilderWidget(
                 context, state, const VoicemailSettingsView()),
+      ),
+      // ── Phase 8: Voice/Video, Stickers, QR Login, Notifications ──
+      GoRoute(
+        path: RouterEnum.qrLoginView.routeName,
+        pageBuilder: (context, state) =>
+            customPageBuilderWidget(context, state, const QrLoginView()),
+      ),
+      GoRoute(
+        path: RouterEnum.notificationSettingsView.routeName,
+        pageBuilder: (context, state) =>
+            customPageBuilderWidget(
+                context, state, const NotificationSettingsView()),
+      ),
+      GoRoute(
+        path: RouterEnum.scheduleMeetingView.routeName,
+        pageBuilder: (context, state) {
+          final extra = state.extra as Map<String, dynamic>?;
+          return customPageBuilderWidget(
+            context,
+            state,
+            ScheduleMeetingView(
+              channelId: extra?['channelId'] as String?,
+              channelName: extra?['channelName'] as String?,
+            ),
+          );
+        },
+      ),
+      GoRoute(
+        path: RouterEnum.createChannelView.routeName,
+        pageBuilder: (context, state) =>
+            customPageBuilderWidget(
+                context, state, const CreateChannelView()),
       ),
     ],
   );
