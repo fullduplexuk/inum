@@ -10,6 +10,9 @@ class EnvConfig {
 
   String get mattermostBaseUrl => _getEnvVariable('MATTERMOST_BASE_URL');
   String get mattermostWsUrl => _getEnvVariable('MATTERMOST_WS_URL');
+  String get livekitUrl => _getEnvVariable('LIVEKIT_URL');
+  String get livekitApiKey => _getEnvVariable('LIVEKIT_API_KEY');
+  String get livekitApiSecret => _getEnvVariable('LIVEKIT_API_SECRET');
 
   Future<void> initialize() async {
     if (_initialized) return;
