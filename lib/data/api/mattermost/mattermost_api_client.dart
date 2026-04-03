@@ -261,12 +261,18 @@ class MattermostApiClient {
     });
   }
 
-  Future<Map<String, dynamic>> createPost(String channelId, String message, {String? rootId}) async {
+  Future<Map<String, dynamic>> createPost(
+    String channelId,
+    String message, {
+    String? rootId,
+    List<String>? fileIds,
+  }) async {
     final body = <String, dynamic>{
       'channel_id': channelId,
       'message': message,
     };
     if (rootId != null) body['root_id'] = rootId;
+    if (fileIds != null && fileIds.isNotEmpty) body['file_ids'] = fileIds;
     return _request('POST', '/posts', body: body);
   }
 
@@ -288,6 +294,30 @@ class MattermostApiClient {
     });
   }
 
+  // --- Reactions ---
+
+  Future<Map<String, dynamic>> addReaction(String userId, String postId, String emojiName) async {
+    return _request('POST', '/reactions', body: {
+      'user_id': userId,
+      'post_id': postId,
+      'emoji_name': emojiName,
+    });
+  }
+
+  Future<void> removeReaction(String userId, String postId, String emojiName) async {
+    await _request('DELETE', '/reactions/$userId/$postId/$emojiName');
+  }
+
+  // --- Threads ---
+
+  Future<Map<String, dynamic>> getThread(String postId) async {
+    return _request('GET', '/posts/$postId/thread');
+  }
+
+  Future<Map<String, dynamic>> getPost(String postId) async {
+    return _request('GET', '/posts/$postId');
+  }
+
   // --- Files ---
 
   Future<Map<String, dynamic>> uploadFile(String channelId, String filePath, String fileName) async {
@@ -306,10 +336,15 @@ class MattermostApiClient {
     throw MattermostApiException('File upload failed', statusCode: response.statusCode);
   }
 
+  Future<Map<String, dynamic>> getFileInfo(String fileId) async {
+    return _request('GET', '/files/$fileId/info');
+  }
+
   // --- URLs ---
 
   String getFileUrl(String fileId) => '$_baseUrl/api/v4/files/$fileId';
   String getFileThumbnailUrl(String fileId) => '$_baseUrl/api/v4/files/$fileId/thumbnail';
+  String getFilePreviewUrl(String fileId) => '$_baseUrl/api/v4/files/$fileId/preview';
   String getProfileImageUrl(String userId) => '$_baseUrl/api/v4/users/$userId/image';
 
   void dispose() {

@@ -29,6 +29,15 @@ class ChatRepository implements IChatRepository {
   Stream<Map<String, dynamic>> get wsEvents => _wsClient.events;
 
   @override
+  String? get currentUserId => _apiClient.currentUserId;
+
+  @override
+  String? get authToken => _apiClient.token;
+
+  @override
+  String getProfileImageUrl(String userId) => _apiClient.getProfileImageUrl(userId);
+
+  @override
   Future<void> connectWebSocket() async {
     final token = _apiClient.token;
     if (token == null) {
@@ -109,8 +118,8 @@ class ChatRepository implements IChatRepository {
   }
 
   @override
-  Future<void> sendMessage(String channelId, String message, {String? rootId}) async {
-    await _apiClient.createPost(channelId, message, rootId: rootId);
+  Future<void> sendMessage(String channelId, String message, {String? rootId, List<String>? fileIds}) async {
+    await _apiClient.createPost(channelId, message, rootId: rootId, fileIds: fileIds);
   }
 
   @override
@@ -126,6 +135,69 @@ class ChatRepository implements IChatRepository {
   @override
   Future<void> markChannelAsRead(String channelId) async {
     await _apiClient.viewChannel(channelId);
+  }
+
+  // --- Reactions ---
+
+  @override
+  Future<void> addReaction(String postId, String emojiName) async {
+    final userId = _apiClient.currentUserId;
+    if (userId == null) return;
+    await _apiClient.addReaction(userId, postId, emojiName);
+  }
+
+  @override
+  Future<void> removeReaction(String postId, String emojiName) async {
+    final userId = _apiClient.currentUserId;
+    if (userId == null) return;
+    await _apiClient.removeReaction(userId, postId, emojiName);
+  }
+
+  // --- Threads ---
+
+  @override
+  Future<List<MessageModel>> getThread(String postId) async {
+    try {
+      final data = await _apiClient.getThread(postId);
+      final order = data['order'] as List<dynamic>? ?? [];
+      final posts = data['posts'] as Map<String, dynamic>? ?? {};
+
+      final messages = <MessageModel>[];
+      for (final id in order) {
+        final post = posts[id as String];
+        if (post != null) {
+          messages.add(MessageModel.fromMattermost(post as Map<String, dynamic>));
+        }
+      }
+      // Sort: root first, then by create_at
+      messages.sort((a, b) => a.createAt.compareTo(b.createAt));
+      return messages;
+    } catch (e) {
+      debugPrint('Error fetching thread: $e');
+      return [];
+    }
+  }
+
+  // --- Files ---
+
+  @override
+  Future<List<String>> uploadFile(String channelId, String filePath, String fileName) async {
+    final result = await _apiClient.uploadFile(channelId, filePath, fileName);
+    final fileInfos = result['file_infos'] as List<dynamic>? ?? [];
+    return fileInfos.map((f) => (f as Map<String, dynamic>)['id'] as String).toList();
+  }
+
+  @override
+  String getFileUrl(String fileId) => _apiClient.getFileUrl(fileId);
+
+  @override
+  String getFileThumbnailUrl(String fileId) => _apiClient.getFileThumbnailUrl(fileId);
+
+  // --- Typing ---
+
+  @override
+  void sendTyping(String channelId) {
+    _wsClient.userTyping(channelId);
   }
 
   void dispose() {
