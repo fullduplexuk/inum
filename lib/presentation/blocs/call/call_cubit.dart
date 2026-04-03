@@ -296,7 +296,6 @@ class CallCubit extends Cubit<CallState> {
   void toggleRecording() {
     final currentState = state;
     if (currentState is! CallActive) return;
-    // Placeholder: will send Egress start/stop request to LiveKit server
     emit(currentState.copyWith(isRecording: !currentState.isRecording));
     debugPrint(
       'Recording ${currentState.isRecording ? "stopped" : "started"} '
@@ -354,6 +353,61 @@ class CallCubit extends Cubit<CallState> {
     }
 
     emit(currentState.copyWith(liveCaptions: updated));
+  }
+
+  // ── Phase 7: Hold ──────────────────────────────────────────────────────
+
+  /// Toggle call hold on/off.
+  void toggleHold() {
+    final currentState = state;
+    if (currentState is! CallActive) return;
+    final newHoldState = !currentState.isOnHold;
+    emit(currentState.copyWith(isOnHold: newHoldState));
+    debugPrint(
+      'Call ${newHoldState ? "placed on hold" : "resumed"} '
+      '(placeholder - SIP bridge not deployed)',
+    );
+  }
+
+  // ── Phase 7: DTMF ─────────────────────────────────────────────────────
+
+  /// Toggle the in-call DTMF pad visibility.
+  void toggleDtmfPad() {
+    final currentState = state;
+    if (currentState is! CallActive) return;
+    emit(currentState.copyWith(showDtmfPad: !currentState.showDtmfPad));
+  }
+
+  /// Send a DTMF tone during an active call.
+  void sendDtmf(String digit) {
+    final currentState = state;
+    if (currentState is! CallActive) return;
+    // Placeholder: would send DTMF via LiveKit data channel or SIP INFO
+    debugPrint('DTMF sent: $digit (placeholder - SIP bridge not deployed)');
+  }
+
+  // ── Phase 7: Call Merge ────────────────────────────────────────────────
+
+  /// Start adding a participant to the active call.
+  void startAddParticipant() {
+    final currentState = state;
+    if (currentState is! CallActive) return;
+    emit(currentState.copyWith(isMerging: true));
+  }
+
+  /// Cancel adding a participant.
+  void cancelAddParticipant() {
+    final currentState = state;
+    if (currentState is! CallActive) return;
+    emit(currentState.copyWith(isMerging: false));
+  }
+
+  /// Merge an incoming call with the current active call (placeholder).
+  void mergeCalls() {
+    final currentState = state;
+    if (currentState is! CallActive) return;
+    emit(currentState.copyWith(isMerging: false));
+    debugPrint('Calls merged (placeholder - conference not implemented)');
   }
 
   void _sendCallSignal(String action, CallModel callModel) {

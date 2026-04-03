@@ -20,6 +20,7 @@ import 'package:inum/presentation/blocs/chat_session/chat_session_cubit.dart';
 import 'package:inum/presentation/blocs/connectivity/connectivity_cubit.dart';
 import 'package:inum/presentation/blocs/contacts/contacts_cubit.dart';
 import 'package:inum/presentation/blocs/recordings/recordings_cubit.dart';
+import 'package:inum/presentation/blocs/sms/sms_cubit.dart';
 
 final getIt = GetIt.instance;
 
@@ -85,5 +86,9 @@ Future<void> setupDependencies() async {
   );
   getIt.registerFactory<RecordingsCubit>(
     () => RecordingsCubit(repository: getIt<IRecordingsRepository>()),
+  );
+  // Phase 7: SMS Cubit
+  getIt.registerFactory<SmsCubit>(
+    () => SmsCubit(),
   );
 }

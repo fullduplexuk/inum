@@ -71,6 +71,12 @@ class _CallHistoryViewState extends State<CallHistoryView>
           indicatorColor: inumPrimary,
         ),
       ),
+      // Phase 7: Dialpad FAB
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => context.push(RouterEnum.dialpadView.routeName),
+        backgroundColor: inumSecondary,
+        child: const Icon(Icons.dialpad, color: Colors.white),
+      ),
       body: BlocBuilder<CallHistoryCubit, CallHistoryState>(
         builder: (context, state) {
           if (state is CallHistoryLoading) {

@@ -3,6 +3,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:inum/domain/models/call/call_model.dart';
 import 'package:inum/presentation/blocs/call/call_cubit.dart';
 import 'package:inum/presentation/blocs/call/call_state.dart';
+import 'package:inum/presentation/blocs/contacts/contacts_cubit.dart';
+import 'package:inum/presentation/blocs/contacts/contacts_state.dart';
 import 'package:inum/presentation/design_system/colors.dart';
 import 'package:inum/presentation/design_system/widgets/user_avatar.dart';
 
@@ -63,13 +65,52 @@ class _IncomingCallBodyState extends State<_IncomingCallBody>
     super.dispose();
   }
 
+  /// Phase 7: Resolve caller identity from contacts or SIP number.
+  String _resolveCallerName() {
+    final callModel = widget.callModel;
+    final rawName = callModel.participants.isNotEmpty
+        ? callModel.participants.first.username
+        : '';
+
+    if (rawName.isEmpty) return 'Unknown Caller';
+
+    // Check if it looks like a phone number (SIP call)
+    final isPhoneNumber = RegExp(r'^[\+]?[\d\s\-\(\)]+$').hasMatch(rawName);
+
+    if (isPhoneNumber) {
+      // Try to resolve from contacts
+      final contactsState = context.read<ContactsCubit>().state;
+      if (contactsState is ContactsLoaded) {
+        for (final contact in contactsState.contacts) {
+          if (contact.username == rawName ||
+              contact.displayName == rawName) {
+            return contact.displayName;
+          }
+        }
+      }
+      return rawName; // Show the phone number as-is
+    }
+
+    return rawName;
+  }
+
+  /// Phase 7: Determine if the caller is from SIP (phone number).
+  bool _isSipCall() {
+    final rawName = widget.callModel.participants.isNotEmpty
+        ? widget.callModel.participants.first.username
+        : '';
+    return RegExp(r'^[\+]?[\d\s\-\(\)]+$').hasMatch(rawName);
+  }
+
   @override
   Widget build(BuildContext context) {
     final callModel = widget.callModel;
     final isVideo = callModel.callType == CallType.video;
-    final callerName = callModel.participants.isNotEmpty
+    final callerName = _resolveCallerName();
+    final isSip = _isSipCall();
+    final rawNumber = callModel.participants.isNotEmpty
         ? callModel.participants.first.username
-        : 'Unknown';
+        : '';
 
     return Scaffold(
       backgroundColor: const Color(0xFF0D1B2A),
@@ -123,6 +164,17 @@ class _IncomingCallBodyState extends State<_IncomingCallBody>
                     letterSpacing: 0.5,
                   ),
                 ),
+                // Phase 7: Show phone number below name if resolved from contacts
+                if (isSip && callerName != rawNumber && rawNumber.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    rawNumber,
+                    style: TextStyle(
+                      color: Colors.white.withAlpha(150),
+                      fontSize: 15,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 12),
                 // Call type indicator
                 Container(
@@ -151,6 +203,35 @@ class _IncomingCallBodyState extends State<_IncomingCallBody>
                     ],
                   ),
                 ),
+                // Phase 7: SIP indicator badge
+                if (isSip) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: inumSecondary.withAlpha(30),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.phone, color: inumSecondary, size: 14),
+                        SizedBox(width: 4),
+                        Text(
+                          'SIP Call',
+                          style: TextStyle(
+                            color: inumSecondary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const Spacer(flex: 3),
                 // Accept / Reject buttons
                 Padding(

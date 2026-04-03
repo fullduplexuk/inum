@@ -66,6 +66,11 @@ class _ContactsViewState extends State<ContactsView> {
     );
   }
 
+  // Phase 7: Open SMS conversation with contact
+  void _smsContact(ContactUser contact) {
+    context.push('${RouterEnum.smsView.routeName}/${Uri.encodeComponent(contact.username)}');
+  }
+
   Color _statusColor(String status) {
     return switch (status) {
       'online' => Colors.green,
@@ -229,6 +234,15 @@ class _ContactsViewState extends State<ContactsView> {
                                       onTap: () {
                                         Navigator.pop(ctx);
                                         _openDm(contact);
+                                      },
+                                    ),
+                                    // Phase 7: SMS option in contact actions
+                                    ListTile(
+                                      leading: const Icon(Icons.sms_outlined),
+                                      title: const Text('SMS'),
+                                      onTap: () {
+                                        Navigator.pop(ctx);
+                                        _smsContact(contact);
                                       },
                                     ),
                                   ],

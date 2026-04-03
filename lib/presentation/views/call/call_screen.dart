@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:inum/domain/models/call/call_model.dart';
 import 'package:inum/presentation/blocs/call/call_cubit.dart';
@@ -218,6 +219,61 @@ class _ActiveCallView extends StatelessWidget {
                 ),
               ],
             ),
+
+            // Phase 7: On Hold overlay
+            if (state.isOnHold)
+              Positioned.fill(
+                child: Container(
+                  color: Colors.black.withAlpha(180),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.pause_circle_filled,
+                            color: Colors.amber, size: 72),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'On Hold',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Call paused',
+                          style: TextStyle(
+                            color: Colors.white.withAlpha(150),
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 32),
+                        _CallActionButton(
+                          icon: Icons.play_arrow,
+                          color: Colors.green,
+                          label: 'Resume',
+                          size: 64,
+                          onPressed: () =>
+                              context.read<CallCubit>().toggleHold(),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+            // Phase 7: DTMF pad overlay
+            if (state.showDtmfPad)
+              Positioned.fill(
+                child: _DtmfOverlay(
+                  onDigit: (digit) =>
+                      context.read<CallCubit>().sendDtmf(digit),
+                  onClose: () =>
+                      context.read<CallCubit>().toggleDtmfPad(),
+                ),
+              ),
+
             // Live captions overlay
             if (state.liveCaptionsEnabled && state.liveCaptions.isNotEmpty)
               Positioned(
@@ -238,6 +294,152 @@ class _ActiveCallView extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ── Phase 7: DTMF Overlay ───────────────────────────────────────────────────
+
+class _DtmfOverlay extends StatelessWidget {
+  final void Function(String digit) onDigit;
+  final VoidCallback onClose;
+
+  const _DtmfOverlay({
+    required this.onDigit,
+    required this.onClose,
+  });
+
+  static const _keys = [
+    '1', '2', '3',
+    '4', '5', '6',
+    '7', '8', '9',
+    '*', '0', '#',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: const Color(0xFF1A1A2E).withAlpha(240),
+      child: SafeArea(
+        child: Column(
+          children: [
+            // Close button
+            Align(
+              alignment: Alignment.topRight,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white, size: 28),
+                  onPressed: onClose,
+                ),
+              ),
+            ),
+            const Spacer(),
+            const Text(
+              'DTMF',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w500,
+                letterSpacing: 1,
+              ),
+            ),
+            const SizedBox(height: 24),
+            // DTMF grid
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 48),
+              child: GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3,
+                  crossAxisSpacing: 20,
+                  mainAxisSpacing: 12,
+                ),
+                itemCount: _keys.length,
+                itemBuilder: (context, index) {
+                  final key = _keys[index];
+                  return _DtmfButton(
+                    digit: key,
+                    onTap: () {
+                      HapticFeedback.lightImpact();
+                      onDigit(key);
+                    },
+                  );
+                },
+              ),
+            ),
+            const Spacer(flex: 2),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DtmfButton extends StatefulWidget {
+  final String digit;
+  final VoidCallback onTap;
+
+  const _DtmfButton({required this.digit, required this.onTap});
+
+  @override
+  State<_DtmfButton> createState() => _DtmfButtonState();
+}
+
+class _DtmfButtonState extends State<_DtmfButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 80),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => _controller.forward(),
+      onTapUp: (_) {
+        _controller.reverse();
+        widget.onTap();
+      },
+      onTapCancel: () => _controller.reverse(),
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) {
+          return Transform.scale(
+            scale: 1.0 - (_controller.value * 0.1),
+            child: Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white
+                    .withAlpha(15 + (_controller.value * 30).toInt()),
+              ),
+              child: Center(
+                child: Text(
+                  widget.digit,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -389,16 +591,44 @@ class _TopBar extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Text(
-                  participants.length == 1
-                      ? participants.first.username
-                      : '${participants.length} participants',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  overflow: TextOverflow.ellipsis,
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      participants.length == 1
+                          ? participants.first.username
+                          : '${participants.length} participants',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    // Phase 7: Participant count badge for multi-party calls
+                    if (participants.length > 1) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: inumSecondary.withAlpha(80),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '${participants.length}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -653,10 +883,26 @@ class _BottomToolbar extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          // Secondary row: Record, CC, End
+          // Secondary row: Hold, DTMF, Record, CC, Add, End
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
+              // Phase 7: Hold button
+              _CallActionButton(
+                icon: state.isOnHold
+                    ? Icons.play_arrow
+                    : Icons.pause,
+                color: state.isOnHold ? Colors.amber : Colors.white24,
+                label: state.isOnHold ? 'Resume' : 'Hold',
+                onPressed: cubit.toggleHold,
+              ),
+              // Phase 7: DTMF button
+              _CallActionButton(
+                icon: Icons.dialpad,
+                color: state.showDtmfPad ? inumSecondary : Colors.white24,
+                label: 'Keypad',
+                onPressed: cubit.toggleDtmfPad,
+              ),
               _CallActionButton(
                 icon: Icons.fiber_manual_record,
                 color: state.isRecording ? Colors.red : Colors.white24,
@@ -680,6 +926,13 @@ class _BottomToolbar extends StatelessWidget {
                   label: 'Translate',
                   onPressed: cubit.toggleTranslation,
                 ),
+              // Phase 7: Add participant / Merge
+              _CallActionButton(
+                icon: Icons.person_add,
+                color: state.isMerging ? inumSecondary : Colors.white24,
+                label: 'Add',
+                onPressed: cubit.startAddParticipant,
+              ),
               _CallActionButton(
                 icon: Icons.call_end,
                 color: Colors.red,

@@ -120,6 +120,24 @@ class _SettingsViewState extends State<SettingsView> {
                 value: _noiseSuppression,
                 onChanged: (val) => setState(() => _noiseSuppression = val),
               ),
+              // Phase 7: Call Forwarding
+              ListTile(
+                leading: const Icon(Icons.phone_forwarded_outlined),
+                title: const Text('Call Forwarding'),
+                subtitle: const Text('Configure forwarding rules'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () =>
+                    context.push(RouterEnum.callForwardingView.routeName),
+              ),
+              // Phase 7: Voicemail Settings
+              ListTile(
+                leading: const Icon(Icons.voicemail_outlined),
+                title: const Text('Voicemail'),
+                subtitle: const Text('Greeting, timing, notifications'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () =>
+                    context.push(RouterEnum.voicemailSettingsView.routeName),
+              ),
 
               const Divider(),
 

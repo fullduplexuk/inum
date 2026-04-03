@@ -7,14 +7,18 @@ import 'package:inum/domain/models/call/transcript_model.dart';
 import 'package:inum/presentation/views/bottom_tab/bottom_tab_view.dart';
 import 'package:inum/presentation/views/call/call_screen.dart';
 import 'package:inum/presentation/views/chat/chat_view.dart';
+import 'package:inum/presentation/views/dialpad/dialpad_view.dart';
 import 'package:inum/presentation/views/landing/landing_view.dart';
 import 'package:inum/presentation/views/recordings/call_summary_view.dart';
 import 'package:inum/presentation/views/recordings/recording_player.dart';
 import 'package:inum/presentation/views/recordings/recordings_list_view.dart';
 import 'package:inum/presentation/views/recordings/transcript_viewer.dart';
+import 'package:inum/presentation/views/settings/call_forwarding_view.dart';
 import 'package:inum/presentation/views/settings/language_settings_view.dart';
 import 'package:inum/presentation/views/settings/settings_view.dart';
+import 'package:inum/presentation/views/settings/voicemail_settings_view.dart';
 import 'package:inum/presentation/views/sign_in/sign_in_view.dart';
+import 'package:inum/presentation/views/sms/sms_view.dart';
 import 'package:inum/presentation/views/voicemail/voicemail_view.dart';
 
 class AppRouter {
@@ -159,6 +163,44 @@ class AppRouter {
         pageBuilder: (context, state) =>
             customPageBuilderWidget(
                 context, state, const LanguageSettingsView()),
+      ),
+      // ── Phase 7: SIP Bridge, Dialpad, SMS, Forwarding, Voicemail ──
+      GoRoute(
+        path: RouterEnum.dialpadView.routeName,
+        pageBuilder: (context, state) =>
+            customPageBuilderWidget(context, state, const DialpadView()),
+      ),
+      GoRoute(
+        path: RouterEnum.smsView.routeName,
+        pageBuilder: (context, state) =>
+            customPageBuilderWidget(
+              context,
+              state,
+              const SmsView(phoneNumber: ''),
+            ),
+      ),
+      GoRoute(
+        path: RouterEnum.smsConversationView.routeName,
+        pageBuilder: (context, state) {
+          final number = state.pathParameters['number'] ?? '';
+          return customPageBuilderWidget(
+            context,
+            state,
+            SmsView(phoneNumber: number),
+          );
+        },
+      ),
+      GoRoute(
+        path: RouterEnum.callForwardingView.routeName,
+        pageBuilder: (context, state) =>
+            customPageBuilderWidget(
+                context, state, const CallForwardingView()),
+      ),
+      GoRoute(
+        path: RouterEnum.voicemailSettingsView.routeName,
+        pageBuilder: (context, state) =>
+            customPageBuilderWidget(
+                context, state, const VoicemailSettingsView()),
       ),
     ],
   );

@@ -69,6 +69,10 @@ class CallActive extends CallState {
   final bool liveCaptionsEnabled;
   final List<LiveCaption> liveCaptions;
   final bool translationEnabled;
+  // Phase 7: Hold, DTMF, Merge
+  final bool isOnHold;
+  final bool showDtmfPad;
+  final bool isMerging;
 
   const CallActive({
     required this.callModel,
@@ -82,6 +86,9 @@ class CallActive extends CallState {
     this.liveCaptionsEnabled = false,
     this.liveCaptions = const [],
     this.translationEnabled = false,
+    this.isOnHold = false,
+    this.showDtmfPad = false,
+    this.isMerging = false,
   });
 
   CallActive copyWith({
@@ -96,6 +103,9 @@ class CallActive extends CallState {
     bool? liveCaptionsEnabled,
     List<LiveCaption>? liveCaptions,
     bool? translationEnabled,
+    bool? isOnHold,
+    bool? showDtmfPad,
+    bool? isMerging,
   }) {
     return CallActive(
       callModel: callModel ?? this.callModel,
@@ -109,6 +119,9 @@ class CallActive extends CallState {
       liveCaptionsEnabled: liveCaptionsEnabled ?? this.liveCaptionsEnabled,
       liveCaptions: liveCaptions ?? this.liveCaptions,
       translationEnabled: translationEnabled ?? this.translationEnabled,
+      isOnHold: isOnHold ?? this.isOnHold,
+      showDtmfPad: showDtmfPad ?? this.showDtmfPad,
+      isMerging: isMerging ?? this.isMerging,
     );
   }
 
@@ -125,6 +138,9 @@ class CallActive extends CallState {
         liveCaptionsEnabled,
         liveCaptions,
         translationEnabled,
+        isOnHold,
+        showDtmfPad,
+        isMerging,
       ];
 }
 

@@ -13,7 +13,13 @@ enum RouterEnum {
   recordingDetailView('/recordings/:id'),
   transcriptView('/transcript/:id'),
   callSummaryView('/call-summary/:id'),
-  languageSettingsView('/settings/language');
+  languageSettingsView('/settings/language'),
+  // Phase 7
+  dialpadView('/dialpad'),
+  smsView('/sms'),
+  smsConversationView('/sms/:number'),
+  callForwardingView('/settings/call-forwarding'),
+  voicemailSettingsView('/settings/voicemail');
 
   final String routeName;
   const RouterEnum(this.routeName);
