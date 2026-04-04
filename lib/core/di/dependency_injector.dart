@@ -9,7 +9,9 @@ import "package:inum/data/api/mattermost/mattermost_api_client.dart";
 import "package:inum/data/api/mattermost/mattermost_ws_client.dart";
 import "package:inum/data/repository/auth/auth_repository.dart";
 import "package:inum/data/repository/call/call_history_repository.dart";
+import "package:inum/data/repository/call/call_history_repository_web.dart";
 import "package:inum/data/repository/call/recordings_repository.dart";
+import "package:inum/data/repository/call/recordings_repository_web.dart";
 import "package:inum/data/repository/chat/chat_repository.dart";
 import "package:inum/data/repository/connectivity/connectivity_repository.dart";
 import "package:inum/data/repository/offline/offline_repository.dart";
@@ -45,8 +47,15 @@ Future<void> setupDependencies() async {
     () => ConnectivityRepository(Connectivity()),
   );
 
-  // SQLite-backed repos — skip on web (sqflite not supported)
-  if (!kIsWeb) {
+  // Call history & recordings — use stubs on web, SQLite on native
+  if (kIsWeb) {
+    getIt.registerLazySingleton<ICallHistoryRepository>(
+      () => CallHistoryRepositoryWeb(),
+    );
+    getIt.registerLazySingleton<IRecordingsRepository>(
+      () => RecordingsRepositoryWeb(),
+    );
+  } else {
     try {
       final callHistoryRepo = CallHistoryRepository();
       await callHistoryRepo.init();
@@ -60,7 +69,18 @@ Future<void> setupDependencies() async {
       await offlineRepo.init();
       getIt.registerLazySingleton<OfflineRepository>(() => offlineRepo);
     } catch (e) {
-      print("SQLite init failed (expected on web): $e");
+      // Fallback to stubs if SQLite init fails on native
+      print("SQLite init failed, using web stubs: $e");
+      if (!getIt.isRegistered<ICallHistoryRepository>()) {
+        getIt.registerLazySingleton<ICallHistoryRepository>(
+          () => CallHistoryRepositoryWeb(),
+        );
+      }
+      if (!getIt.isRegistered<IRecordingsRepository>()) {
+        getIt.registerLazySingleton<IRecordingsRepository>(
+          () => RecordingsRepositoryWeb(),
+        );
+      }
     }
   }
 
@@ -84,17 +104,13 @@ Future<void> setupDependencies() async {
     ),
   );
 
-  // These cubits need SQLite repos — only register if available
-  if (getIt.isRegistered<ICallHistoryRepository>()) {
-    getIt.registerFactory<CallHistoryCubit>(
-      () => CallHistoryCubit(repository: getIt<ICallHistoryRepository>()),
-    );
-  }
-  if (getIt.isRegistered<IRecordingsRepository>()) {
-    getIt.registerFactory<RecordingsCubit>(
-      () => RecordingsCubit(repository: getIt<IRecordingsRepository>()),
-    );
-  }
+  // Always register — repos are guaranteed to exist (stubs on web)
+  getIt.registerFactory<CallHistoryCubit>(
+    () => CallHistoryCubit(repository: getIt<ICallHistoryRepository>()),
+  );
+  getIt.registerFactory<RecordingsCubit>(
+    () => RecordingsCubit(repository: getIt<IRecordingsRepository>()),
+  );
 
   getIt.registerFactory<ContactsCubit>(
     () => ContactsCubit(apiClient: getIt<MattermostApiClient>()),

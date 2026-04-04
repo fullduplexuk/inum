@@ -22,44 +22,36 @@ class AppWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final providers = <BlocProvider>[
-      BlocProvider<AuthSessionCubit>(
-        create: (_) => getIt<AuthSessionCubit>(),
-      ),
-      BlocProvider<ChatSessionCubit>(
-        create: (_) => getIt<ChatSessionCubit>(),
-      ),
-      BlocProvider<ChannelListCubit>(
-        create: (_) => getIt<ChannelListCubit>(),
-      ),
-      BlocProvider<ConnectivityCubit>(
-        create: (_) => getIt<ConnectivityCubit>(),
-      ),
-      BlocProvider<CallCubit>(
-        create: (_) => getIt<CallCubit>(),
-      ),
-      BlocProvider<ContactsCubit>(
-        create: (_) => getIt<ContactsCubit>(),
-      ),
-      BlocProvider<ThemeCubit>(
-        create: (_) => ThemeCubit(),
-      ),
-    ];
-
-    // Add SQLite-backed cubits only if registered (not available on web)
-    if (getIt.isRegistered<CallHistoryCubit>()) {
-      providers.add(BlocProvider<CallHistoryCubit>(
-        create: (_) => getIt<CallHistoryCubit>(),
-      ));
-    }
-    if (getIt.isRegistered<RecordingsCubit>()) {
-      providers.add(BlocProvider<RecordingsCubit>(
-        create: (_) => getIt<RecordingsCubit>(),
-      ));
-    }
-
     return MultiBlocProvider(
-      providers: providers,
+      providers: [
+        BlocProvider<AuthSessionCubit>(
+          create: (_) => getIt<AuthSessionCubit>(),
+        ),
+        BlocProvider<ChatSessionCubit>(
+          create: (_) => getIt<ChatSessionCubit>(),
+        ),
+        BlocProvider<ChannelListCubit>(
+          create: (_) => getIt<ChannelListCubit>(),
+        ),
+        BlocProvider<ConnectivityCubit>(
+          create: (_) => getIt<ConnectivityCubit>(),
+        ),
+        BlocProvider<CallCubit>(
+          create: (_) => getIt<CallCubit>(),
+        ),
+        BlocProvider<ContactsCubit>(
+          create: (_) => getIt<ContactsCubit>(),
+        ),
+        BlocProvider<ThemeCubit>(
+          create: (_) => ThemeCubit(),
+        ),
+        BlocProvider<CallHistoryCubit>(
+          create: (_) => getIt<CallHistoryCubit>(),
+        ),
+        BlocProvider<RecordingsCubit>(
+          create: (_) => getIt<RecordingsCubit>(),
+        ),
+      ],
       child: BlocBuilder<ThemeCubit, ThemeState>(
         builder: (context, themeState) {
           return MaterialApp.router(
