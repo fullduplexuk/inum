@@ -20,6 +20,14 @@ class _SignInViewState extends State<SignInView> {
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
 
+  // Quick login accounts for testing
+  static const _quickLogins = [
+    {'label': 'arif', 'user': 'arif', 'pass': 'Inum2026!', 'color': 0xFF1E3A5F},
+    {'label': 'demo', 'user': 'demo', 'pass': 'Inum2026!', 'color': 0xFF00BCD4},
+    {'label': 'user1', 'user': 'user1', 'pass': 'Inum2026!', 'color': 0xFF4CAF50},
+    {'label': 'user2', 'user': 'user2', 'pass': 'Inum2026!', 'color': 0xFFFF9800},
+  ];
+
   @override
   void dispose() {
     _loginController.dispose();
@@ -32,6 +40,12 @@ class _SignInViewState extends State<SignInView> {
     final password = _passwordController.text;
     if (login.isEmpty || password.isEmpty) return;
     context.read<AuthSessionCubit>().login(login, password);
+  }
+
+  void _quickLogin(String user, String pass) {
+    _loginController.text = user;
+    _passwordController.text = pass;
+    context.read<AuthSessionCubit>().login(user, pass);
   }
 
   @override
@@ -59,6 +73,58 @@ class _SignInViewState extends State<SignInView> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
+                  // Quick login buttons for testing
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: customGreyColor200,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: customGreyColor300),
+                    ),
+                    child: Column(
+                      children: [
+                        const Text(
+                          'Quick Login (Testing)',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: customGreyColor700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: _quickLogins.map((account) {
+                            return Expanded(
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 3),
+                                child: ElevatedButton(
+                                  onPressed: () => _quickLogin(
+                                    account['user'] as String,
+                                    account['pass'] as String,
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Color(account['color'] as int),
+                                    foregroundColor: white,
+                                    padding: const EdgeInsets.symmetric(vertical: 10),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    textStyle: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  child: Text(account['label'] as String),
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 32),
                   Container(
                     width: 80,
                     height: 80,

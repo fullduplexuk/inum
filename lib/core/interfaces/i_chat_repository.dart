@@ -36,4 +36,13 @@ abstract class IChatRepository {
   Future<void> pinMessage(String postId);
   Future<void> unpinMessage(String postId);
   Future<List<MessageModel>> getPinnedMessages(String channelId);
+
+  // User lookup for DM display names
+  Future<Map<String, String>> getUserDisplayNames(List<String> userIds);
+
+  // Search users (for new chat)
+  Future<List<Map<String, dynamic>>> searchUsers(String term);
+
+  // Create DM channel
+  Future<String> createDirectMessage(String otherUserId);
 }

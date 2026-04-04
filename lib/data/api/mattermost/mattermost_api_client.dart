@@ -193,6 +193,10 @@ class MattermostApiClient {
     return _requestList('POST', '/users/ids', body: userIds);
   }
 
+  Future<List<dynamic>> searchUsers(String term) async {
+    return _requestList('POST', '/users/search', body: {'term': term});
+  }
+
   Future<Map<String, dynamic>> getUserStatus(String userId) async {
     return _request('GET', '/users/$userId/status');
   }
@@ -250,6 +254,11 @@ class MattermostApiClient {
 
   Future<List<dynamic>> getChannelMembers(String channelId) async {
     return _requestList('GET', '/channels/$channelId/members');
+  }
+
+  /// Get all channel memberships for a user (includes msg_count, mention_count for unread calculation)
+  Future<List<dynamic>> getChannelMembersForUser(String userId) async {
+    return _requestList('GET', '/users/$userId/channel_members');
   }
 
   // --- Posts ---

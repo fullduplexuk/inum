@@ -16,6 +16,9 @@ class ChatRepository implements IChatRepository {
   List<ChannelModel> _cachedChannels = [];
   StreamSubscription<Map<String, dynamic>>? _wsSubscription;
 
+  /// Cache of userId -> display name for DM channels
+  final Map<String, String> _userDisplayNameCache = {};
+
   ChatRepository({
     required MattermostApiClient apiClient,
     required MattermostWsClient wsClient,
@@ -64,6 +67,7 @@ class ChatRepository implements IChatRepository {
     try {
       final teams = await _apiClient.getMyTeams();
       final allChannels = <ChannelModel>[];
+      final currentUid = _apiClient.currentUserId ?? '';
 
       for (final team in teams) {
         final teamId = team['id'] as String;
@@ -73,12 +77,130 @@ class ChatRepository implements IChatRepository {
         }
       }
 
-      allChannels.sort((a, b) => b.lastPostAt.compareTo(a.lastPostAt));
-      _cachedChannels = allChannels;
-      _channelsController.add(_cachedChannels);
+      // Collect DM other-user IDs for batch lookup
+      final dmUserIds = <String>{};
+      for (final ch in allChannels) {
+        if (ch.isDirect) {
+          final otherId = ch.otherUserId(currentUid);
+          if (otherId != null && otherId.isNotEmpty && !_userDisplayNameCache.containsKey(otherId)) {
+            dmUserIds.add(otherId);
+          }
+        }
+      }
+
+      // Batch fetch user display names
+      if (dmUserIds.isNotEmpty) {
+        try {
+          final users = await _apiClient.getUsersByIds(dmUserIds.toList());
+          for (final u in users) {
+            final userData = u as Map<String, dynamic>;
+            final uid = userData['id'] as String? ?? '';
+            final first = userData['first_name'] as String? ?? '';
+            final last = userData['last_name'] as String? ?? '';
+            final username = userData['username'] as String? ?? '';
+            final name = (first.isNotEmpty || last.isNotEmpty)
+                ? '$first $last'.trim()
+                : username;
+            if (uid.isNotEmpty) _userDisplayNameCache[uid] = name;
+          }
+        } catch (e) {
+          debugPrint('Error fetching DM user names: $e');
+        }
+      }
+
+      // Set display names for DM channels
+      final enriched = <ChannelModel>[];
+      for (var ch in allChannels) {
+        if (ch.isDirect) {
+          final otherId = ch.otherUserId(currentUid);
+          if (otherId != null && _userDisplayNameCache.containsKey(otherId)) {
+            ch = ch.copyWith(displayName: _userDisplayNameCache[otherId]);
+          }
+        }
+        enriched.add(ch);
+      }
+
+      // Fetch unread counts
+      try {
+        final memberData = await _fetchMyChannelUnreads();
+        final readCountMap = <String, int>{};
+        final mentionMap = <String, int>{};
+        for (final m in memberData) {
+          final cid = m['channel_id'] as String? ?? '';
+          final msgCount = m['msg_count'] as int? ?? 0;
+          final mentionCount = m['mention_count'] as int? ?? 0;
+          readCountMap[cid] = msgCount;
+          mentionMap[cid] = mentionCount;
+        }
+
+        // Apply unread counts
+        final withUnreads = <ChannelModel>[];
+        for (var ch in enriched) {
+          final readCount = readCountMap[ch.id] ?? ch.totalMsgCount;
+          final unread = ch.totalMsgCount - readCount;
+          final mentionCount = mentionMap[ch.id] ?? 0;
+          final effectiveUnread = unread > 0 ? unread : mentionCount;
+          withUnreads.add(ch.copyWith(unreadCount: effectiveUnread > 0 ? effectiveUnread : 0));
+        }
+
+        // Fetch last messages
+        final withMessages = await _enrichWithLastMessages(withUnreads);
+
+        withMessages.sort((a, b) => b.lastPostAt.compareTo(a.lastPostAt));
+        _cachedChannels = withMessages;
+        _channelsController.add(_cachedChannels);
+      } catch (e) {
+        debugPrint('Error enriching channels: $e');
+        enriched.sort((a, b) => b.lastPostAt.compareTo(a.lastPostAt));
+        _cachedChannels = enriched;
+        _channelsController.add(_cachedChannels);
+      }
     } catch (e) {
       debugPrint('Error loading channels: $e');
     }
+  }
+
+  Future<List<dynamic>> _fetchMyChannelUnreads() async {
+    final uid = _apiClient.currentUserId;
+    if (uid == null) return [];
+    try {
+      return await _apiClient.getChannelMembersForUser(uid);
+    } catch (e) {
+      debugPrint('Error fetching unread counts: $e');
+      return [];
+    }
+  }
+
+  Future<List<ChannelModel>> _enrichWithLastMessages(List<ChannelModel> channels) async {
+    // Fetch last post for top 30 channels to avoid too many requests
+    final toFetch = channels.take(30).toList();
+    final remaining = channels.skip(30).toList();
+
+    final futures = toFetch.map((ch) async {
+      try {
+        final posts = await _apiClient.getPosts(ch.id, page: 0, perPage: 1);
+        final order = posts['order'] as List<dynamic>? ?? [];
+        final postsMap = posts['posts'] as Map<String, dynamic>? ?? {};
+        if (order.isNotEmpty) {
+          final lastPostId = order.first as String;
+          final lastPost = postsMap[lastPostId] as Map<String, dynamic>?;
+          if (lastPost != null) {
+            var msg = lastPost['message'] as String? ?? '';
+            final fileIds = lastPost['file_ids'] as List<dynamic>?;
+            if (msg.isEmpty && fileIds != null && fileIds.isNotEmpty) {
+              msg = '[Attachment]';
+            }
+            return ch.copyWith(lastMessage: msg);
+          }
+        }
+      } catch (e) {
+        debugPrint('Error fetching last post for ${ch.id}: $e');
+      }
+      return ch;
+    });
+
+    final results = await Future.wait(futures);
+    return [...results, ...remaining];
   }
 
   void _handleWsEvent(Map<String, dynamic> event) {
@@ -137,8 +259,6 @@ class ChatRepository implements IChatRepository {
     await _apiClient.viewChannel(channelId);
   }
 
-  // --- Reactions ---
-
   @override
   Future<void> addReaction(String postId, String emojiName) async {
     final userId = _apiClient.currentUserId;
@@ -152,8 +272,6 @@ class ChatRepository implements IChatRepository {
     if (userId == null) return;
     await _apiClient.removeReaction(userId, postId, emojiName);
   }
-
-  // --- Threads ---
 
   @override
   Future<List<MessageModel>> getThread(String postId) async {
@@ -169,7 +287,6 @@ class ChatRepository implements IChatRepository {
           messages.add(MessageModel.fromMattermost(post as Map<String, dynamic>));
         }
       }
-      // Sort: root first, then by create_at
       messages.sort((a, b) => a.createAt.compareTo(b.createAt));
       return messages;
     } catch (e) {
@@ -177,8 +294,6 @@ class ChatRepository implements IChatRepository {
       return [];
     }
   }
-
-  // --- Files ---
 
   @override
   Future<List<String>> uploadFile(String channelId, String filePath, String fileName) async {
@@ -193,11 +308,60 @@ class ChatRepository implements IChatRepository {
   @override
   String getFileThumbnailUrl(String fileId) => _apiClient.getFileThumbnailUrl(fileId);
 
-  // --- Typing ---
-
   @override
   void sendTyping(String channelId) {
     _wsClient.userTyping(channelId);
+  }
+
+  @override
+  Future<Map<String, String>> getUserDisplayNames(List<String> userIds) async {
+    final result = <String, String>{};
+    final toFetch = userIds.where((id) => !_userDisplayNameCache.containsKey(id)).toList();
+    for (final id in userIds) {
+      if (_userDisplayNameCache.containsKey(id)) {
+        result[id] = _userDisplayNameCache[id]!;
+      }
+    }
+    if (toFetch.isNotEmpty) {
+      try {
+        final users = await _apiClient.getUsersByIds(toFetch);
+        for (final u in users) {
+          final userData = u as Map<String, dynamic>;
+          final uid = userData['id'] as String? ?? '';
+          final first = userData['first_name'] as String? ?? '';
+          final last = userData['last_name'] as String? ?? '';
+          final username = userData['username'] as String? ?? '';
+          final name = (first.isNotEmpty || last.isNotEmpty)
+              ? '$first $last'.trim()
+              : username;
+          if (uid.isNotEmpty) {
+            _userDisplayNameCache[uid] = name;
+            result[uid] = name;
+          }
+        }
+      } catch (e) {
+        debugPrint('Error fetching user display names: $e');
+      }
+    }
+    return result;
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> searchUsers(String term) async {
+    try {
+      final users = await _apiClient.searchUsers(term);
+      return users.map((u) => u as Map<String, dynamic>).toList();
+    } catch (e) {
+      debugPrint('Error searching users: $e');
+      return [];
+    }
+  }
+
+  @override
+  Future<String> createDirectMessage(String otherUserId) async {
+    final uid = _apiClient.currentUserId ?? '';
+    final ch = await _apiClient.createDirectChannel([uid, otherUserId]);
+    return ch['id'] as String? ?? '';
   }
 
   void dispose() {
