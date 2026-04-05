@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
@@ -7,6 +9,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
 import 'package:inum/core/interfaces/i_chat_repository.dart';
 import 'package:inum/core/di/dependency_injector.dart';
+import 'package:inum/core/services/web/web_drop_helper.dart';
 import 'package:inum/domain/models/chat/message_model.dart';
 import 'package:inum/presentation/design_system/colors.dart';
 import 'package:inum/presentation/design_system/widgets/user_avatar.dart';
@@ -18,6 +21,10 @@ import 'package:inum/presentation/views/chat/widgets/voice_message_recorder.dart
 import 'package:inum/presentation/views/chat/widgets/voice_message_player.dart';
 import 'package:inum/presentation/views/chat/widgets/sticker_picker.dart';
 import 'package:inum/presentation/blocs/chat_session/chat_session_cubit.dart';
+import 'package:inum/presentation/blocs/saved/saved_messages_cubit.dart';
+import 'package:inum/presentation/blocs/saved/saved_messages_state.dart';
+import 'package:inum/presentation/views/chat/widgets/formatted_text.dart';
+import 'package:inum/presentation/views/chat/widgets/poll_widget.dart';
 
 // Emoji name to unicode mapping for common reactions
 const Map<String, String> kEmojiMap = {
@@ -99,6 +106,10 @@ class _ChatViewState extends State<ChatView> {
   bool _showStickerPicker = false;
   bool _isVoiceRecording = false;
 
+  // Reply state
+  MessageModel? _replyingTo;
+  String? _replyingSenderName;
+
   late final IChatRepository _chatRepo;
 
   // User statuses cache (userId -> status string: online/away/dnd/offline)
@@ -116,6 +127,16 @@ class _ChatViewState extends State<ChatView> {
     try {
       context.read<ChatSessionCubit>().setActiveChannel(widget.channelId);
     } catch (_) {}
+    // Web: drag & drop and paste
+    if (kIsWeb) {
+      setupWebDragDrop(
+        onDrop: _handleWebFileDrop,
+        onDragOver: (over) { if (mounted) setState(() => _isDragOver = over); },
+      );
+      setupWebPasteHandler(onPaste: _handleWebFileDrop);
+    }
+    // Fetch last seen / member count
+    _fetchLastSeen();
   }
 
   @override
@@ -130,6 +151,10 @@ class _ChatViewState extends State<ChatView> {
     _typingDebounce?.cancel();
     for (final t in _typingTimers.values) {
       t.cancel();
+    }
+    if (kIsWeb) {
+      teardownWebDragDrop();
+      teardownWebPasteHandler();
     }
     super.dispose();
   }
@@ -152,6 +177,8 @@ class _ChatViewState extends State<ChatView> {
           _handleReactionChange(data);
         case 'typing':
           _handleTypingEvent(data, broadcast);
+        case 'channel_viewed':
+          _handleChannelViewed(data, broadcast);
       }
     });
   }
@@ -260,6 +287,96 @@ class _ChatViewState extends State<ChatView> {
     });
   }
 
+  void _handleChannelViewed(Map<String, dynamic> data, Map<String, dynamic> broadcast) {
+    final channelId = data['channel_id'] as String? ?? broadcast['channel_id'] as String?;
+    if (channelId != widget.channelId) return;
+    // The other user viewed this channel -- mark all messages as read
+    if (mounted) {
+      setState(() {
+        _otherUserLastViewedAt = DateTime.now().millisecondsSinceEpoch;
+      });
+    }
+  }
+
+  Future<void> _fetchLastSeen() async {
+    try {
+      // Determine if DM by checking channel name format (userId1__userId2)
+      // We need channel info -- approximate by checking members from messages
+      // For simplicity, use the channel name passed in; DMs have format "userid__userid"
+      // We can check via the statuses we already fetch
+      // Wait for first messages to load, then check
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (!mounted) return;
+
+      final otherUserIds = _messages
+          .map((m) => m.userId)
+          .where((id) => id != _chatRepo.currentUserId && id.isNotEmpty)
+          .toSet()
+          .toList();
+
+      if (otherUserIds.isEmpty) return;
+
+      // Heuristic: if only 1 other user in messages, treat as DM
+      if (otherUserIds.length == 1) {
+        _isDmChannel = true;
+        _memberCount = 2;
+        // Fetch last_activity_at for last seen
+        try {
+          final userDetails = await _chatRepo.getUserDetails(otherUserIds.first);
+          final lastActivity = userDetails['last_activity_at'] as int? ?? 0;
+          final status = _userStatuses[otherUserIds.first] ?? 'offline';
+          if (mounted) {
+            setState(() {
+              if (status == 'online') {
+                _lastSeenText = 'online';
+              } else if (lastActivity > 0) {
+                _lastSeenText = _formatLastSeen(DateTime.fromMillisecondsSinceEpoch(lastActivity));
+              }
+            });
+          }
+        } catch (_) {}
+      } else {
+        if (mounted) {
+          setState(() {
+            _isDmChannel = false;
+            _memberCount = otherUserIds.length + 1;
+          });
+        }
+      }
+    } catch (_) {}
+  }
+
+  static String _formatLastSeen(DateTime lastSeen) {
+    final now = DateTime.now();
+    final diff = now.difference(lastSeen);
+    if (diff.inSeconds < 60) return 'last seen just now';
+    if (diff.inMinutes < 60) return 'last seen ${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return 'last seen ${diff.inHours}h ago';
+    if (diff.inDays == 1) return 'last seen yesterday';
+    return 'last seen ${diff.inDays}d ago';
+  }
+
+  void _handleWebFileDrop(Uint8List bytes, String fileName) async {
+    if (!mounted) return;
+    setState(() => _isUploading = true);
+    try {
+      final fileIds = await _chatRepo.uploadFileBytes(widget.channelId, bytes.toList(), fileName);
+      if (mounted) {
+        setState(() {
+          _pendingFileIds.addAll(fileIds);
+          _isUploading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isUploading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Upload failed: $e')),
+        );
+      }
+    }
+  }
+
   Future<void> _loadMessages() async {
     if (_isLoading || !_hasMore) return;
     setState(() => _isLoading = true);
@@ -333,11 +450,16 @@ class _ChatViewState extends State<ChatView> {
         }
       }
     } else {
-      // New message, possibly with files
+      // New message, possibly with files and/or reply
       final fileIds = _pendingFileIds.isNotEmpty ? List<String>.from(_pendingFileIds) : null;
-      setState(() => _pendingFileIds = []);
+      final rootId = _replyingTo?.id;
+      setState(() {
+        _pendingFileIds = [];
+        _replyingTo = null;
+        _replyingSenderName = null;
+      });
       try {
-        await _chatRepo.sendMessage(widget.channelId, text, fileIds: fileIds);
+        await _chatRepo.sendMessage(widget.channelId, text, rootId: rootId, fileIds: fileIds);
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -359,6 +481,21 @@ class _ChatViewState extends State<ChatView> {
     setState(() {
       _editingPostId = null;
       _messageController.clear();
+    });
+  }
+
+  void _startReply(MessageModel msg, String senderName) {
+    setState(() {
+      _replyingTo = msg;
+      _replyingSenderName = senderName;
+      _editingPostId = null;
+    });
+  }
+
+  void _cancelReply() {
+    setState(() {
+      _replyingTo = null;
+      _replyingSenderName = null;
     });
   }
 
@@ -555,13 +692,60 @@ class _ChatViewState extends State<ChatView> {
                 );
               },
             ),
-            // Reply in thread
+            // Reply (quote)
             ListTile(
               leading: const Icon(Icons.reply),
+              title: const Text('Reply'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _startReply(msg, '');
+              },
+            ),
+            // Reply in thread
+            ListTile(
+              leading: const Icon(Icons.forum_outlined),
               title: const Text('Reply in thread'),
               onTap: () {
                 Navigator.pop(ctx);
                 _openThread(msg);
+              },
+            ),
+            // Forward
+            ListTile(
+              leading: const Icon(Icons.forward),
+              title: const Text('Forward'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _forwardMessage(msg);
+              },
+            ),
+            // Save / Bookmark
+            BlocBuilder<SavedMessagesCubit, SavedMessagesState>(
+              builder: (bCtx, savedState) {
+                final isSaved = bCtx.read<SavedMessagesCubit>().isSaved(msg.id);
+                return ListTile(
+                  leading: Icon(isSaved ? Icons.bookmark : Icons.bookmark_border),
+                  title: Text(isSaved ? 'Unsave' : 'Save'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    if (isSaved) {
+                      context.read<SavedMessagesCubit>().unsaveMessage(msg.id);
+                    } else {
+                      context.read<SavedMessagesCubit>().saveMessage(
+                        SavedMessageEntry(
+                          messageId: msg.id,
+                          channelId: widget.channelId,
+                          channelName: widget.channelName,
+                          messageText: msg.message,
+                          savedAt: DateTime.now(),
+                        ),
+                      );
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Message saved'), duration: Duration(seconds: 1)),
+                      );
+                    }
+                  },
+                );
               },
             ),
             // Pin message
@@ -598,6 +782,72 @@ class _ChatViewState extends State<ChatView> {
     );
   }
 
+
+
+  Future<void> _forwardMessage(MessageModel msg) async {
+    final channels = await _chatRepo.getChannelList();
+    if (!mounted) return;
+
+    final selected = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => _ForwardPickerDialog(channels: channels),
+    );
+    if (selected == null) return;
+
+    final targetChannelId = selected['id'] as String? ?? '';
+    if (targetChannelId.isEmpty) return;
+
+    try {
+      final senderName = msg.userId; // userId as fallback
+      final forwardText = 'Forwarded from $senderName:\n${msg.message}';
+      await _chatRepo.sendMessage(targetChannelId, forwardText);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Message forwarded'), duration: Duration(seconds: 1)),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Forward failed: $e')),
+        );
+      }
+    }
+  }
+
+  void _createPoll() async {
+    setState(() => _showExpandedActions = false);
+    final pollMsg = await showDialog<String>(
+      context: context,
+      builder: (ctx) => const CreatePollDialog(),
+    );
+    if (pollMsg != null && pollMsg.isNotEmpty) {
+      await _chatRepo.sendMessage(widget.channelId, pollMsg);
+    }
+  }
+
+  void _shareContact() async {
+    setState(() => _showExpandedActions = false);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _ShareContactDialog(),
+    );
+    if (result != null && result.isNotEmpty) {
+      await _chatRepo.sendMessage(widget.channelId, result);
+    }
+  }
+
+  void _shareLocation() async {
+    setState(() => _showExpandedActions = false);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _ShareLocationDialog(),
+    );
+    if (result != null && result.isNotEmpty) {
+      await _chatRepo.sendMessage(widget.channelId, result);
+    }
+  }
+
   void _openThread(MessageModel rootMsg) {
     final rootId = rootMsg.isReply ? rootMsg.rootId : rootMsg.id;
     showModalBottomSheet(
@@ -625,28 +875,50 @@ class _ChatViewState extends State<ChatView> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Row(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(widget.channelName.isNotEmpty ? widget.channelName : 'Chat'),
-            if (_userStatuses.isNotEmpty)
-              Builder(builder: (context) {
-                // Show first non-own user status (useful for DM)
-                final otherStatuses = _userStatuses.entries
-                    .where((e) => e.key != _chatRepo.currentUserId);
-                if (otherStatuses.isEmpty) return const SizedBox.shrink();
-                final status = otherStatuses.first.value;
-                return Padding(
-                  padding: const EdgeInsets.only(left: 8),
-                  child: Container(
-                    width: 10, height: 10,
-                    decoration: BoxDecoration(
-                      color: _onlineStatusColor(status),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                );
-              }),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(child: Text(widget.channelName.isNotEmpty ? widget.channelName : 'Chat', overflow: TextOverflow.ellipsis)),
+                if (_userStatuses.isNotEmpty)
+                  Builder(builder: (context) {
+                    final otherStatuses = _userStatuses.entries
+                        .where((e) => e.key != _chatRepo.currentUserId);
+                    if (otherStatuses.isEmpty) return const SizedBox.shrink();
+                    final status = otherStatuses.first.value;
+                    return Padding(
+                      padding: const EdgeInsets.only(left: 8),
+                      child: Container(
+                        width: 10, height: 10,
+                        decoration: BoxDecoration(
+                          color: _onlineStatusColor(status),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    );
+                  }),
+              ],
+            ),
+            // Last seen or member count subtitle
+            if (_lastSeenText != null)
+              Text(
+                _lastSeenText!,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w400,
+                  color: _lastSeenText == 'online'
+                      ? const Color(0xFF4CAF50)
+                      : customGreyColor500,
+                ),
+              )
+            else if (!_isDmChannel && _memberCount > 0)
+              Text(
+                '$_memberCount members',
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w400, color: customGreyColor500),
+              ),
           ],
         ),
         actions: [
@@ -687,7 +959,9 @@ class _ChatViewState extends State<ChatView> {
           const SizedBox(width: 4),
         ],
       ),
-      body: Column(
+      body: Stack(
+        children: [
+          Column(
         children: [
           Expanded(
             child: _messages.isEmpty && _isLoading
@@ -707,6 +981,12 @@ class _ChatViewState extends State<ChatView> {
                         );
                       }
                       final msg = _messages[index];
+                      // Find quoted text for replies
+                      String? quotedText;
+                      if (msg.isReply) {
+                        final parent = _messages.where((m) => m.id == msg.rootId).firstOrNull;
+                        quotedText = parent?.message;
+                      }
                       return _RichMessageBubble(
                         message: msg,
                         isOwn: msg.userId == _chatRepo.currentUserId,
@@ -725,6 +1005,8 @@ class _ChatViewState extends State<ChatView> {
                         getFileUrl: _chatRepo.getFileUrl,
                         getFileThumbnailUrl: _chatRepo.getFileThumbnailUrl,
                         getProfileImageUrl: _chatRepo.getProfileImageUrl,
+                        quotedText: quotedText,
+                        onQuotedTap: msg.isReply ? () => _openThread(msg) : null,
                       );
                     },
                   ),
@@ -743,6 +1025,39 @@ class _ChatViewState extends State<ChatView> {
                   fontStyle: FontStyle.italic,
                   color: customGreyColor500,
                 ),
+              ),
+            ),
+          // Reply banner
+          if (_replyingTo != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              color: inumSecondary.withAlpha(30),
+              child: Row(
+                children: [
+                  const Icon(Icons.reply, size: 16, color: inumSecondary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Replying to ${_replyingSenderName?.isNotEmpty == true ? _replyingSenderName! : "message"}',
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: inumSecondary),
+                        ),
+                        Text(
+                          _replyingTo!.message,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12, color: customGreyColor600),
+                        ),
+                      ],
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: _cancelReply,
+                    child: const Icon(Icons.close, size: 18, color: customGreyColor600),
+                  ),
+                ],
               ),
             ),
           // Edit banner
@@ -798,7 +1113,9 @@ class _ChatViewState extends State<ChatView> {
                 color: Theme.of(context).scaffoldBackgroundColor,
                 border: Border(top: BorderSide(color: customGreyColor200)),
               ),
-              child: Row(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
                   _ActionButton(icon: Icons.camera_alt, label: 'Camera', onTap: () { setState(() => _showExpandedActions = false); _pickAndUploadFile(); }),
@@ -806,7 +1123,11 @@ class _ChatViewState extends State<ChatView> {
                   _ActionButton(icon: Icons.insert_drive_file, label: 'File', onTap: () { setState(() => _showExpandedActions = false); _pickAndUploadFile(); }),
                   _ActionButton(icon: Icons.mic, label: 'Voice', onTap: () { setState(() { _showExpandedActions = false; _isVoiceRecording = true; }); }),
                   _ActionButton(icon: Icons.emoji_emotions, label: 'Sticker', onTap: () { setState(() { _showExpandedActions = false; _showStickerPicker = !_showStickerPicker; }); }),
+                  _ActionButton(icon: Icons.poll, label: 'Poll', onTap: _createPoll),
+                  _ActionButton(icon: Icons.contact_page, label: 'Contact', onTap: _shareContact),
+                  _ActionButton(icon: Icons.location_on, label: 'Location', onTap: _shareLocation),
                 ],
+              ),
               ),
             ),
           // Message input
@@ -888,6 +1209,33 @@ class _ChatViewState extends State<ChatView> {
           ),
         ],
       ),
+          // Drag overlay
+          if (_isDragOver)
+            Positioned.fill(
+              child: Container(
+                color: inumPrimary.withAlpha(40),
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 20),
+                    decoration: BoxDecoration(
+                      color: white,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [BoxShadow(color: Colors.black.withAlpha(30), blurRadius: 12)],
+                    ),
+                    child: const Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.cloud_upload_outlined, size: 48, color: inumPrimary),
+                        SizedBox(height: 8),
+                        Text('Drop file here', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: inumPrimary)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -906,6 +1254,8 @@ class _RichMessageBubble extends StatelessWidget {
   final String Function(String) getFileUrl;
   final String Function(String) getFileThumbnailUrl;
   final String Function(String) getProfileImageUrl;
+  final VoidCallback? onQuotedTap;
+  final String? quotedText;
 
   const _RichMessageBubble({
     required this.message,
@@ -919,6 +1269,8 @@ class _RichMessageBubble extends StatelessWidget {
     required this.getFileUrl,
     required this.getFileThumbnailUrl,
     required this.getProfileImageUrl,
+    this.onQuotedTap,
+    this.quotedText,
   });
 
   static Color _statusColor(String status) {
@@ -1027,7 +1379,7 @@ class _RichMessageBubble extends StatelessWidget {
                         ],
                         // Link previews
                         ..._buildLinkPreviews(context),
-                        // Time + edited indicator
+                        // Time + edited indicator + delivery ticks
                         const SizedBox(height: 4),
                         Row(
                           mainAxisSize: MainAxisSize.min,
@@ -1038,6 +1390,14 @@ class _RichMessageBubble extends StatelessWidget {
                                 child: Text('(edited)', style: TextStyle(fontSize: 10, color: timeColor, fontStyle: FontStyle.italic)),
                               ),
                             Text(timeStr, style: TextStyle(fontSize: 11, color: timeColor)),
+                            if (isOwn) ...[
+                              const SizedBox(width: 4),
+                              _DeliveryTick(
+                                messageCreateAt: message.createAt.millisecondsSinceEpoch,
+                                otherUserLastViewedAt: otherUserLastViewedAt,
+                                isOwn: isOwn,
+                              ),
+                            ],
                           ],
                         ),
                       ],
@@ -1084,37 +1444,95 @@ class _RichMessageBubble extends StatelessWidget {
   }
 
   Widget _buildMessageText(BuildContext context, Color textColor) {
-    final urlRegex = RegExp(r'https?://[^\s]+');
-    final matches = urlRegex.allMatches(message.message);
-
-    if (matches.isEmpty) {
-      return Text(message.message, style: TextStyle(fontSize: 15, color: textColor, height: 1.3));
+    // Check for special message types
+    // Poll
+    final pollData = PollData.tryParse(message.message);
+    if (pollData != null) {
+      return PollWidget(
+        poll: pollData,
+        reactionGroups: message.reactionGroups,
+        currentUserId: currentUserId,
+        onVote: onReactionTap,
+      );
     }
 
-    // Build rich text with styled links
-    final spans = <TextSpan>[];
-    int lastEnd = 0;
-    for (final match in matches) {
-      if (match.start > lastEnd) {
-        spans.add(TextSpan(text: message.message.substring(lastEnd, match.start)));
-      }
-      spans.add(TextSpan(
-        text: match.group(0),
-        style: TextStyle(
-          decoration: TextDecoration.underline,
-          color: isOwn ? white.withAlpha(230) : inumSecondary,
+    // Contact card
+    if (message.message.startsWith('\u{1F4C7} Contact:') || message.message.startsWith('\xf0\x9f\x93\x87 Contact:')) {
+      return _buildContactCard(context, textColor);
+    }
+
+    // Location
+    if (message.message.startsWith('\u{1F4CD} Location:') || message.message.startsWith('\xf0\x9f\x93\x8d Location:')) {
+      return _buildLocationCard(context, textColor);
+    }
+
+    // Quoted reply preview
+    Widget? quoteWidget;
+    if (message.isReply && onQuotedTap != null) {
+      quoteWidget = GestureDetector(
+        onTap: onQuotedTap,
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 6),
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: (isOwn ? white : inumPrimary).withAlpha(15),
+            borderRadius: BorderRadius.circular(8),
+            border: const Border(left: BorderSide(color: inumSecondary, width: 3)),
+          ),
+          child: Text(
+            quotedText ?? 'Original message',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 12, color: textColor.withAlpha(160), fontStyle: FontStyle.italic),
+          ),
         ),
-      ));
-      lastEnd = match.end;
-    }
-    if (lastEnd < message.message.length) {
-      spans.add(TextSpan(text: message.message.substring(lastEnd)));
+      );
     }
 
-    return RichText(
-      text: TextSpan(
-        style: TextStyle(fontSize: 15, color: textColor, height: 1.3),
-        children: spans,
+    // Use FormattedText for markdown support
+    final formattedWidget = FormattedText(text: message.message, textColor: textColor);
+
+    if (quoteWidget != null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [quoteWidget, formattedWidget],
+      );
+    }
+    return formattedWidget;
+  }
+
+  Widget _buildContactCard(BuildContext context, Color textColor) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: (isOwn ? white : inumPrimary).withAlpha(15),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.contact_page, color: isOwn ? white.withAlpha(200) : inumSecondary, size: 28),
+          const SizedBox(width: 10),
+          Flexible(child: Text(message.message, style: TextStyle(fontSize: 14, color: textColor))),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLocationCard(BuildContext context, Color textColor) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: (isOwn ? white : inumPrimary).withAlpha(15),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.location_on, color: isOwn ? white.withAlpha(200) : errorColor, size: 28),
+          const SizedBox(width: 10),
+          Flexible(child: Text(message.message, style: TextStyle(fontSize: 14, color: textColor))),
+        ],
       ),
     );
   }
@@ -1486,6 +1904,39 @@ class _ThreadViewState extends State<_ThreadView> {
   }
 }
 
+// --- Delivery receipt tick widget ---
+
+class _DeliveryTick extends StatelessWidget {
+  final int messageCreateAt;
+  final int? otherUserLastViewedAt;
+  final bool isOwn;
+
+  const _DeliveryTick({
+    required this.messageCreateAt,
+    this.otherUserLastViewedAt,
+    required this.isOwn,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (!isOwn) return const SizedBox.shrink();
+
+    // Determine read status
+    final isRead = otherUserLastViewedAt != null && otherUserLastViewedAt! >= messageCreateAt;
+
+    // All sent messages have been delivered (we got 201 from API)
+    // So we always show double tick; blue if read
+    final tickColor = isRead ? const Color(0xFF2196F3) : (white.withAlpha(180));
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.done_all, size: 14, color: tickColor),
+      ],
+    );
+  }
+}
+
 // --- Phase 8: Action Button for expanded input ---
 
 class _ActionButton extends StatelessWidget {
@@ -1590,3 +2041,212 @@ class _PinnedMessagesSheetState extends State<_PinnedMessagesSheet> {
     );
   }
 }
+
+
+// --- Forward Message Picker ---
+
+class _ForwardPickerDialog extends StatefulWidget {
+  final List<Map<String, dynamic>> channels;
+  const _ForwardPickerDialog({required this.channels});
+
+  @override
+  State<_ForwardPickerDialog> createState() => _ForwardPickerDialogState();
+}
+
+class _ForwardPickerDialogState extends State<_ForwardPickerDialog> {
+  final _searchController = TextEditingController();
+  late List<Map<String, dynamic>> _filtered;
+
+  @override
+  void initState() {
+    super.initState();
+    _filtered = widget.channels;
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _onSearch(String query) {
+    setState(() {
+      if (query.isEmpty) {
+        _filtered = widget.channels;
+      } else {
+        _filtered = widget.channels.where((ch) {
+          final name = (ch['display_name'] as String? ?? '').toLowerCase();
+          return name.contains(query.toLowerCase());
+        }).toList();
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Forward to...'),
+      content: SizedBox(
+        width: double.maxFinite,
+        height: 400,
+        child: Column(
+          children: [
+            TextField(
+              controller: _searchController,
+              onChanged: _onSearch,
+              decoration: InputDecoration(
+                hintText: 'Search channels...',
+                prefixIcon: const Icon(Icons.search),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: ListView.builder(
+                itemCount: _filtered.length,
+                itemBuilder: (context, index) {
+                  final ch = _filtered[index];
+                  final name = ch['display_name'] as String? ?? ch['name'] as String? ?? '';
+                  final type = ch['type'] as String? ?? '';
+                  IconData icon;
+                  switch (type) {
+                    case 'D': icon = Icons.person; break;
+                    case 'G': icon = Icons.group; break;
+                    case 'P': icon = Icons.lock; break;
+                    default: icon = Icons.tag; break;
+                  }
+                  return ListTile(
+                    leading: Icon(icon, color: inumSecondary),
+                    title: Text(name.isNotEmpty ? name : 'Channel'),
+                    dense: true,
+                    onTap: () => Navigator.pop(context, ch),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+      ],
+    );
+  }
+}
+
+// --- Share Contact Dialog ---
+
+class _ShareContactDialog extends StatefulWidget {
+  @override
+  State<_ShareContactDialog> createState() => _ShareContactDialogState();
+}
+
+class _ShareContactDialogState extends State<_ShareContactDialog> {
+  final _nameController = TextEditingController();
+  final _usernameController = TextEditingController();
+  final _emailController = TextEditingController();
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _usernameController.dispose();
+    _emailController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Share Contact'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _nameController,
+            decoration: const InputDecoration(labelText: 'Name'),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _usernameController,
+            decoration: const InputDecoration(labelText: 'Username (optional)'),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _emailController,
+            decoration: const InputDecoration(labelText: 'Email (optional)'),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final name = _nameController.text.trim();
+            if (name.isEmpty) return;
+            final parts = <String>['\u{1F4C7} Contact: $name'];
+            if (_usernameController.text.trim().isNotEmpty) {
+              parts.add('Username: @${_usernameController.text.trim()}');
+            }
+            if (_emailController.text.trim().isNotEmpty) {
+              parts.add('Email: ${_emailController.text.trim()}');
+            }
+            Navigator.pop(context, parts.join('\n'));
+          },
+          child: const Text('Share'),
+        ),
+      ],
+    );
+  }
+}
+
+// --- Share Location Dialog ---
+
+class _ShareLocationDialog extends StatefulWidget {
+  @override
+  State<_ShareLocationDialog> createState() => _ShareLocationDialogState();
+}
+
+class _ShareLocationDialogState extends State<_ShareLocationDialog> {
+  final _locationController = TextEditingController();
+
+  @override
+  void dispose() {
+    _locationController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Share Location'),
+      content: TextField(
+        controller: _locationController,
+        decoration: const InputDecoration(
+          labelText: 'Address or coordinates',
+          hintText: 'e.g. 51.5074, -0.1278',
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final loc = _locationController.text.trim();
+            if (loc.isEmpty) return;
+            Navigator.pop(context, '\u{1F4CD} Location: $loc');
+          },
+          child: const Text('Share'),
+        ),
+      ],
+    );
+  }
+}
+

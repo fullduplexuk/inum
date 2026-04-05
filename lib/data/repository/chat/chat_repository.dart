@@ -382,9 +382,46 @@ class ChatRepository implements IChatRepository {
     return result;
   }
 
+  @override
+  Future<List<String>> uploadFileBytes(String channelId, List<int> bytes, String fileName) async {
+    final result = await _apiClient.uploadFileBytes(channelId, bytes, fileName);
+    final fileInfos = result['file_infos'] as List<dynamic>? ?? [];
+    return fileInfos.map((fi) => (fi as Map<String, dynamic>)['id'] as String).toList();
+  }
+
+  @override
+  Future<Map<String, dynamic>> getUserDetails(String userId) async {
+    return _apiClient.getUser(userId);
+  }
+
   void dispose() {
     _wsSubscription?.cancel();
     _channelsController.close();
+  }
+
+
+  @override
+  Future<Map<String, dynamic>> searchPosts(String terms) async {
+    return _apiClient.searchPosts(terms);
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getChannelList() async {
+    try {
+      final teams = await _apiClient.getMyTeams();
+      final result = <Map<String, dynamic>>[];
+      for (final team in teams) {
+        final teamId = team['id'] as String;
+        final channels = await _apiClient.getMyChannels(teamId);
+        for (final ch in channels) {
+          result.add(ch as Map<String, dynamic>);
+        }
+      }
+      return result;
+    } catch (e) {
+      debugPrint('Error getting channel list: $e');
+      return [];
+    }
   }
 
   @override

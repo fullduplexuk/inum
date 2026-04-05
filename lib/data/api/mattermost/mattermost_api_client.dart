@@ -353,6 +353,24 @@ class MattermostApiClient {
     return _request('GET', '/files/$fileId/info');
   }
 
+  Future<Map<String, dynamic>> uploadFileBytes(String channelId, List<int> bytes, String fileName) async {
+    final uri = Uri.parse('\$_baseUrl/api/v4/files');
+    final request = http.MultipartRequest('POST', uri)
+      ..headers.addAll({'Authorization': 'Bearer \${_token ?? ""}'})
+      ..fields['channel_id'] = channelId
+      ..files.add(http.MultipartFile.fromBytes('files', bytes, filename: fileName));
+
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    throw MattermostApiException('File upload (bytes) failed', statusCode: response.statusCode);
+  }
+
+
+
   // --- URLs ---
 
   String getFileUrl(String fileId) => '$_baseUrl/api/v4/files/$fileId';
@@ -416,7 +434,19 @@ class MattermostApiClient {
     return _request('GET', '/channels/$channelId/stats');
   }
 
+
+  // --- Search ---
+
+  Future<Map<String, dynamic>> searchPosts(String terms) async {
+    return _request('POST', '/posts/search', body: {
+      'terms': terms,
+      'is_or_search': true,
+    });
+  }
+
   void dispose() {
     _client.close();
   }
 }
+
+// Note: this was appended but we need to insert it in the right place

@@ -27,6 +27,9 @@ import 'package:inum/presentation/views/meetings/schedule_meeting_view.dart';
 import 'package:inum/presentation/views/channels/create_channel_view.dart';
 import 'package:inum/presentation/views/channels/channel_info_view.dart';
 
+import 'package:inum/presentation/views/saved/saved_messages_view.dart';
+import 'package:inum/presentation/views/search/message_search_view.dart';
+
 class AppRouter {
   static final _rootNavigatorKey = GlobalKey<NavigatorState>();
 

@@ -1,4 +1,7 @@
+import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:inum/presentation/design_system/colors.dart';
 
 const Map<String, List<String>> _emojiCategories = {
@@ -22,6 +25,8 @@ const Map<String, List<String>> _emojiCategories = {
     '\u{1F49C}', '\u{1F494}', '\u{2B50}', '\u{1F525}', '\u{1F4A5}'],
 };
 
+const String _tenorApiKey = 'AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ';
+
 class StickerPicker extends StatefulWidget {
   final void Function(String emoji) onEmojiSelected;
   final void Function(String stickerUrl)? onStickerSelected;
@@ -38,10 +43,31 @@ class _StickerPickerState extends State<StickerPicker> with SingleTickerProvider
   String _selectedCategory = 'Smileys';
   final List<String> _recentEmojis = [];
 
+  // GIF state
+  final _gifSearchController = TextEditingController();
+  List<Map<String, dynamic>> _gifs = [];
+  bool _isLoadingGifs = false;
+  Timer? _gifSearchDebounce;
+
   @override
-  void initState() { super.initState(); _tabController = TabController(length: 3, vsync: this); }
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(() {
+      if (_tabController.index == 2 && _gifs.isEmpty && !_isLoadingGifs) {
+        _loadTrendingGifs();
+      }
+    });
+  }
+
   @override
-  void dispose() { _tabController.dispose(); _searchController.dispose(); super.dispose(); }
+  void dispose() {
+    _tabController.dispose();
+    _searchController.dispose();
+    _gifSearchController.dispose();
+    _gifSearchDebounce?.cancel();
+    super.dispose();
+  }
 
   List<String> _getFilteredEmojis() {
     if (_searchQuery.isEmpty) {
@@ -58,6 +84,76 @@ class _StickerPickerState extends State<StickerPicker> with SingleTickerProvider
     setState(() { _recentEmojis.remove(emoji); _recentEmojis.insert(0, emoji); if (_recentEmojis.length > 30) _recentEmojis.removeLast(); });
   }
 
+  Future<void> _loadTrendingGifs() async {
+    setState(() => _isLoadingGifs = true);
+    try {
+      final uri = Uri.parse('https://tenor.googleapis.com/v2/featured?key=$_tenorApiKey&limit=20');
+      final response = await http.get(uri);
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final results = (data['results'] as List<dynamic>?) ?? [];
+        if (mounted) {
+          setState(() {
+            _gifs = results.map((r) => r as Map<String, dynamic>).toList();
+            _isLoadingGifs = false;
+          });
+        }
+      } else {
+        if (mounted) setState(() => _isLoadingGifs = false);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLoadingGifs = false);
+    }
+  }
+
+  Future<void> _searchGifs(String query) async {
+    if (query.trim().isEmpty) {
+      _loadTrendingGifs();
+      return;
+    }
+    setState(() => _isLoadingGifs = true);
+    try {
+      final uri = Uri.parse('https://tenor.googleapis.com/v2/search?q=${Uri.encodeComponent(query)}&key=$_tenorApiKey&limit=20');
+      final response = await http.get(uri);
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final results = (data['results'] as List<dynamic>?) ?? [];
+        if (mounted) {
+          setState(() {
+            _gifs = results.map((r) => r as Map<String, dynamic>).toList();
+            _isLoadingGifs = false;
+          });
+        }
+      } else {
+        if (mounted) setState(() => _isLoadingGifs = false);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLoadingGifs = false);
+    }
+  }
+
+  String? _getGifUrl(Map<String, dynamic> gif) {
+    try {
+      final mediaFormats = gif['media_formats'] as Map<String, dynamic>?;
+      if (mediaFormats == null) return null;
+      final tinygif = mediaFormats['tinygif'] as Map<String, dynamic>?;
+      return tinygif?['url'] as String?;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String? _getGifFullUrl(Map<String, dynamic> gif) {
+    try {
+      final mediaFormats = gif['media_formats'] as Map<String, dynamic>?;
+      if (mediaFormats == null) return null;
+      final fullGif = mediaFormats['gif'] as Map<String, dynamic>?;
+      return fullGif?['url'] as String?;
+    } catch (_) {
+      return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -70,17 +166,6 @@ class _StickerPickerState extends State<StickerPicker> with SingleTickerProvider
       child: Column(children: [
         TabBar(controller: _tabController, labelColor: inumPrimary, unselectedLabelColor: customGreyColor500,
           indicatorColor: inumPrimary, tabs: const [Tab(text: 'Emoji'), Tab(text: 'Stickers'), Tab(text: 'GIFs')]),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: TextField(
-            controller: _searchController, onChanged: (v) => setState(() => _searchQuery = v),
-            decoration: InputDecoration(hintText: 'Search...', prefixIcon: const Icon(Icons.search, size: 20),
-              suffixIcon: _searchQuery.isNotEmpty ? IconButton(icon: const Icon(Icons.clear, size: 18),
-                onPressed: () { _searchController.clear(); setState(() => _searchQuery = ''); }) : null,
-              contentPadding: const EdgeInsets.symmetric(vertical: 8),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(20)), isDense: true),
-          ),
-        ),
         Expanded(child: TabBarView(controller: _tabController, children: [_buildEmojiTab(), _buildStickersTab(), _buildGifsTab()])),
       ]),
     );
@@ -90,6 +175,17 @@ class _StickerPickerState extends State<StickerPicker> with SingleTickerProvider
     final categories = _emojiCategories.keys.toList();
     final emojis = _getFilteredEmojis();
     return Column(children: [
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: TextField(
+          controller: _searchController, onChanged: (v) => setState(() => _searchQuery = v),
+          decoration: InputDecoration(hintText: 'Search emojis...', prefixIcon: const Icon(Icons.search, size: 20),
+            suffixIcon: _searchQuery.isNotEmpty ? IconButton(icon: const Icon(Icons.clear, size: 18),
+              onPressed: () { _searchController.clear(); setState(() => _searchQuery = ''); }) : null,
+            contentPadding: const EdgeInsets.symmetric(vertical: 8),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(20)), isDense: true),
+        ),
+      ),
       if (_searchQuery.isEmpty) SizedBox(height: 32, child: ListView.builder(
         scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 8),
         itemCount: categories.length,
@@ -139,8 +235,85 @@ class _StickerPickerState extends State<StickerPicker> with SingleTickerProvider
   }
 
   Widget _buildGifsTab() {
-    return const Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-      Icon(Icons.gif_box_outlined, size: 48, color: customGreyColor400), SizedBox(height: 12),
-      Text('GIF search coming soon', style: TextStyle(color: customGreyColor500, fontSize: 14))]));
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: TextField(
+            controller: _gifSearchController,
+            onChanged: (v) {
+              _gifSearchDebounce?.cancel();
+              _gifSearchDebounce = Timer(const Duration(milliseconds: 400), () => _searchGifs(v));
+            },
+            decoration: InputDecoration(
+              hintText: 'Search GIFs...',
+              prefixIcon: const Icon(Icons.search, size: 20),
+              suffixIcon: _gifSearchController.text.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear, size: 18),
+                      onPressed: () {
+                        _gifSearchController.clear();
+                        _loadTrendingGifs();
+                      },
+                    )
+                  : null,
+              contentPadding: const EdgeInsets.symmetric(vertical: 8),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(20)),
+              isDense: true,
+            ),
+          ),
+        ),
+        Expanded(
+          child: _isLoadingGifs
+              ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+              : _gifs.isEmpty
+                  ? const Center(child: Text('No GIFs found', style: TextStyle(color: customGreyColor500)))
+                  : GridView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 2,
+                        childAspectRatio: 1.2,
+                        crossAxisSpacing: 6,
+                        mainAxisSpacing: 6,
+                      ),
+                      itemCount: _gifs.length,
+                      itemBuilder: (context, index) {
+                        final gif = _gifs[index];
+                        final thumbUrl = _getGifUrl(gif);
+                        final fullUrl = _getGifFullUrl(gif);
+                        if (thumbUrl == null) return const SizedBox.shrink();
+                        return GestureDetector(
+                          onTap: () {
+                            final url = fullUrl ?? thumbUrl;
+                            widget.onStickerSelected?.call(url);
+                          },
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.network(
+                              thumbUrl,
+                              fit: BoxFit.cover,
+                              loadingBuilder: (_, child, progress) {
+                                if (progress == null) return child;
+                                return Container(
+                                  color: customGreyColor200,
+                                  child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                                );
+                              },
+                              errorBuilder: (_, __, ___) => Container(
+                                color: customGreyColor200,
+                                child: const Center(child: Icon(Icons.broken_image, color: customGreyColor400)),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 4),
+          child: Text('Powered by Tenor', style: TextStyle(fontSize: 10, color: customGreyColor500)),
+        ),
+      ],
+    );
   }
 }

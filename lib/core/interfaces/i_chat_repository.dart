@@ -21,6 +21,10 @@ abstract class IChatRepository {
 
   // Files
   Future<List<String>> uploadFile(String channelId, String filePath, String fileName);
+  Future<List<String>> uploadFileBytes(String channelId, List<int> bytes, String fileName);
+
+  /// Get user details including last_activity_at
+  Future<Map<String, dynamic>> getUserDetails(String userId);
   String getFileUrl(String fileId);
   String getFileThumbnailUrl(String fileId);
 
@@ -48,4 +52,10 @@ abstract class IChatRepository {
 
   // Create DM channel
   Future<String> createDirectMessage(String otherUserId);
+
+  // Search posts across channels
+  Future<Map<String, dynamic>> searchPosts(String terms);
+
+  // Get all channels (raw maps) for forwarding picker
+  Future<List<Map<String, dynamic>>> getChannelList();
 }

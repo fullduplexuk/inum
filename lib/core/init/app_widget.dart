@@ -1,13 +1,19 @@
+import "package:flutter/foundation.dart";
 import "package:flutter/material.dart";
+import "package:flutter/services.dart";
 import "package:flutter_bloc/flutter_bloc.dart";
 import "package:get_it/get_it.dart";
+import "package:go_router/go_router.dart";
 import "package:inum/core/di/dependency_injector.dart";
 import "package:inum/core/init/router/app_router.dart";
+import "package:inum/core/constants/enums/router_enum.dart";
+import "package:inum/core/services/web/web_title_helper.dart";
 import "package:inum/presentation/blocs/auth_session/auth_session_cubit.dart";
 import "package:inum/presentation/blocs/call/call_cubit.dart";
 import "package:inum/presentation/blocs/call/call_state.dart";
 import "package:inum/presentation/blocs/call_history/call_history_cubit.dart";
 import "package:inum/presentation/blocs/channel_list/channel_list_cubit.dart";
+import "package:inum/presentation/blocs/channel_list/channel_list_state.dart";
 import "package:inum/presentation/blocs/chat_session/chat_session_cubit.dart";
 import "package:inum/presentation/blocs/connectivity/connectivity_cubit.dart";
 import "package:inum/presentation/blocs/contacts/contacts_cubit.dart";
@@ -62,13 +68,118 @@ class AppWidget extends StatelessWidget {
             themeMode: themeState.themeMode,
             routerConfig: AppRouter.router,
             builder: (context, child) {
-              return _IncomingCallOverlay(child: child ?? const SizedBox.shrink());
+              return _WebShortcutsWrapper(
+                child: _UnreadTitleUpdater(
+                  child: _IncomingCallOverlay(
+                    child: child ?? const SizedBox.shrink(),
+                  ),
+                ),
+              );
             },
           );
         },
       ),
     );
   }
+}
+
+/// Updates browser tab title and favicon badge based on unread count.
+class _UnreadTitleUpdater extends StatelessWidget {
+  final Widget child;
+  const _UnreadTitleUpdater({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!kIsWeb) return child;
+
+    return BlocListener<ChannelListCubit, ChannelListState>(
+      listener: (context, state) {
+        if (state is ChannelListLoaded) {
+          int totalUnread = 0;
+          for (final ch in state.channels) {
+            totalUnread += ch.unreadCount;
+          }
+          if (totalUnread > 0) {
+            setWebTitle('($totalUnread) INUM');
+            setWebFaviconBadge(true);
+          } else {
+            setWebTitle('INUM');
+            setWebFaviconBadge(false);
+          }
+        }
+      },
+      child: child,
+    );
+  }
+}
+
+/// Keyboard shortcuts wrapper for web.
+class _WebShortcutsWrapper extends StatelessWidget {
+  final Widget child;
+  const _WebShortcutsWrapper({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!kIsWeb) return child;
+
+    return Shortcuts(
+      shortcuts: <ShortcutActivator, Intent>{
+        LogicalKeySet(LogicalKeyboardKey.control, LogicalKeyboardKey.keyN): const _NewChatIntent(),
+        LogicalKeySet(LogicalKeyboardKey.control, LogicalKeyboardKey.keyK): const _SearchChannelsIntent(),
+        const SingleActivator(LogicalKeyboardKey.escape): const _GoBackIntent(),
+      },
+      child: Actions(
+        actions: <Type, Action<Intent>>{
+          _NewChatIntent: CallbackAction<_NewChatIntent>(
+            onInvoke: (_) {
+              final ctx = AppRouter.router.routerDelegate.navigatorKey.currentContext;
+              if (ctx != null) {
+                ctx.push(RouterEnum.createChannelView.routeName);
+              }
+              return null;
+            },
+          ),
+          _SearchChannelsIntent: CallbackAction<_SearchChannelsIntent>(
+            onInvoke: (_) {
+              final ctx = AppRouter.router.routerDelegate.navigatorKey.currentContext;
+              if (ctx != null) {
+                ctx.go(RouterEnum.dashboardView.routeName);
+              }
+              return null;
+            },
+          ),
+          _GoBackIntent: CallbackAction<_GoBackIntent>(
+            onInvoke: (_) {
+              final ctx = AppRouter.router.routerDelegate.navigatorKey.currentContext;
+              if (ctx != null) {
+                final nav = Navigator.of(ctx);
+                if (nav.canPop()) {
+                  nav.pop();
+                }
+              }
+              return null;
+            },
+          ),
+        },
+        child: Focus(
+          autofocus: true,
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+class _NewChatIntent extends Intent {
+  const _NewChatIntent();
+}
+
+class _SearchChannelsIntent extends Intent {
+  const _SearchChannelsIntent();
+}
+
+class _GoBackIntent extends Intent {
+  const _GoBackIntent();
 }
 
 class _IncomingCallOverlay extends StatelessWidget {

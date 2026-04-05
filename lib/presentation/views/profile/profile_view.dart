@@ -87,6 +87,13 @@ class ProfileView extends StatelessWidget {
                   title: const Text('Position'),
                   subtitle: Text(user.position),
                 ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.bookmark_outline),
+                title: const Text('Saved Messages'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.push(RouterEnum.savedMessagesView.routeName),
+              ),
               const SizedBox(height: 32),
               SizedBox(
                 width: double.infinity,

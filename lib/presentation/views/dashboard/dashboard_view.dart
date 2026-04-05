@@ -103,6 +103,13 @@ class _DashboardViewState extends State<DashboardView> {
       appBar: AppBar(
         title: const Text('INUM', style: TextStyle(fontWeight: FontWeight.w700, letterSpacing: 1)),
         centerTitle: false,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.search),
+            tooltip: 'Search messages',
+            onPressed: () => context.push(RouterEnum.searchView.routeName),
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _openNewChat,

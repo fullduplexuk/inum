@@ -25,7 +25,10 @@ enum RouterEnum {
   notificationSettingsView('/settings/notifications'),
   scheduleMeetingView('/meetings/schedule'),
   createChannelView('/channels/create'),
-  channelInfoView('/channels/info');
+  channelInfoView('/channels/info'),
+  // Phase 9: Chat features
+  savedMessagesView('/saved-messages'),
+  searchView('/search');
 
   final String routeName;
   const RouterEnum(this.routeName);
