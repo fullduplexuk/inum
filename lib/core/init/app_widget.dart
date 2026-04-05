@@ -18,6 +18,8 @@ import "package:inum/presentation/blocs/chat_session/chat_session_cubit.dart";
 import "package:inum/presentation/blocs/connectivity/connectivity_cubit.dart";
 import "package:inum/presentation/blocs/contacts/contacts_cubit.dart";
 import "package:inum/presentation/blocs/recordings/recordings_cubit.dart";
+import "package:inum/presentation/blocs/disappearing_messages/disappearing_messages_cubit.dart";
+import "package:inum/presentation/blocs/custom_status/custom_status_cubit.dart";
 import "package:inum/presentation/blocs/theme/theme_cubit.dart";
 import "package:inum/presentation/blocs/theme/theme_state.dart";
 import "package:inum/presentation/design_system/theme.dart";
@@ -56,6 +58,12 @@ class AppWidget extends StatelessWidget {
         ),
         BlocProvider<RecordingsCubit>(
           create: (_) => getIt<RecordingsCubit>(),
+        ),
+        BlocProvider<DisappearingMessagesCubit>(
+          create: (_) => getIt<DisappearingMessagesCubit>(),
+        ),
+        BlocProvider<CustomStatusCubit>(
+          create: (_) => getIt<CustomStatusCubit>(),
         ),
       ],
       child: BlocBuilder<ThemeCubit, ThemeState>(

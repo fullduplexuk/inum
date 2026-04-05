@@ -449,6 +449,17 @@ class MattermostApiClient {
     });
   }
 
+
+  // --- Custom Status ---
+
+  Future<Map<String, dynamic>> setCustomStatus(String userId, Map<String, dynamic> status) async {
+    return _request('PUT', '/users/$userId/status/custom', body: status);
+  }
+
+  Future<void> clearCustomStatus(String userId) async {
+    await _request('DELETE', '/users/$userId/status/custom');
+  }
+
   void dispose() {
     _client.close();
   }

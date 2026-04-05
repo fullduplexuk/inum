@@ -6,6 +6,8 @@ import 'package:inum/presentation/blocs/auth_session/auth_session_cubit.dart';
 import 'package:inum/presentation/blocs/auth_session/auth_session_state.dart';
 import 'package:inum/presentation/blocs/chat_session/chat_session_cubit.dart';
 import 'package:inum/presentation/design_system/colors.dart';
+import 'package:inum/presentation/blocs/custom_status/custom_status_cubit.dart';
+import 'package:inum/presentation/views/chat/widgets/custom_status_widgets.dart';
 
 class ProfileView extends StatelessWidget {
   const ProfileView({super.key});
@@ -74,6 +76,10 @@ class ProfileView extends StatelessWidget {
                 isSelected: user.status == 'offline',
                 onTap: () => context.read<AuthSessionCubit>().updateStatus('offline'),
               ),
+              const SizedBox(height: 24),
+              const Divider(),
+              const SizedBox(height: 16),
+              const CustomStatusSection(),
               const SizedBox(height: 32),
               if (user.email.isNotEmpty)
                 ListTile(

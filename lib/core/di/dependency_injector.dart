@@ -24,6 +24,11 @@ import "package:inum/presentation/blocs/connectivity/connectivity_cubit.dart";
 import "package:inum/presentation/blocs/contacts/contacts_cubit.dart";
 import "package:inum/presentation/blocs/recordings/recordings_cubit.dart";
 import "package:inum/presentation/blocs/sms/sms_cubit.dart";
+import "package:inum/core/services/disappearing_messages_service.dart";
+import "package:inum/core/services/custom_status_service.dart";
+import "package:inum/presentation/blocs/disappearing_messages/disappearing_messages_cubit.dart";
+import "package:inum/presentation/blocs/custom_status/custom_status_cubit.dart";
+
 
 final getIt = GetIt.instance;
 
@@ -117,5 +122,21 @@ Future<void> setupDependencies() async {
   );
   getIt.registerFactory<SmsCubit>(
     () => SmsCubit(),
+  );
+
+  // Disappearing Messages
+  getIt.registerLazySingleton<DisappearingMessagesService>(
+    () => DisappearingMessagesService(api: getIt<MattermostApiClient>()),
+  );
+  getIt.registerFactory<DisappearingMessagesCubit>(
+    () => DisappearingMessagesCubit(service: getIt<DisappearingMessagesService>()),
+  );
+
+  // Custom Status
+  getIt.registerLazySingleton<CustomStatusService>(
+    () => CustomStatusService(api: getIt<MattermostApiClient>()),
+  );
+  getIt.registerFactory<CustomStatusCubit>(
+    () => CustomStatusCubit(service: getIt<CustomStatusService>()),
   );
 }

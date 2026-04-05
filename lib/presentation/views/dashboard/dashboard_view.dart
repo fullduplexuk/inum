@@ -10,6 +10,8 @@ import 'package:inum/presentation/blocs/channel_list/channel_list_state.dart';
 import 'package:inum/presentation/design_system/colors.dart';
 import 'package:inum/presentation/design_system/widgets/user_avatar.dart';
 import 'package:inum/domain/models/chat/channel_model.dart';
+import 'package:inum/presentation/blocs/disappearing_messages/disappearing_messages_cubit.dart';
+import 'package:inum/presentation/views/chat/widgets/disappearing_messages_widgets.dart';
 
 class DashboardView extends StatefulWidget {
   const DashboardView({super.key});
@@ -267,13 +269,28 @@ class _ChannelListItemState extends State<_ChannelListItem>
       opacity: _fadeAnimation,
       child: ListTile(
         leading: widget.leading,
-        title: Text(
-          displayName,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontWeight: hasUnread ? FontWeight.w700 : FontWeight.w500,
-          ),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                displayName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontWeight: hasUnread ? FontWeight.w700 : FontWeight.w500,
+                ),
+              ),
+            ),
+            Builder(
+              builder: (ctx) {
+                final dmCubit = ctx.read<DisappearingMessagesCubit>();
+                if (dmCubit.isEnabled(widget.channel.id)) {
+                  return const ChannelTimerIcon();
+                }
+                return const SizedBox.shrink();
+              },
+            ),
+          ],
         ),
         subtitle: subtitle != null
             ? Text(

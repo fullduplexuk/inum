@@ -26,6 +26,9 @@ import 'package:inum/presentation/blocs/saved/saved_messages_state.dart';
 import 'package:inum/presentation/views/chat/widgets/formatted_text.dart';
 import 'package:inum/presentation/views/chat/widgets/poll_widget.dart';
 import 'package:inum/presentation/views/chat/widgets/unread_separator.dart';
+import 'package:inum/presentation/views/chat/widgets/disappearing_messages_widgets.dart';
+import 'package:inum/presentation/blocs/disappearing_messages/disappearing_messages_cubit.dart';
+import 'package:inum/core/services/disappearing_messages_service.dart';
 
 // Emoji name to unicode mapping for common reactions
 const Map<String, String> kEmojiMap = {
@@ -1025,6 +1028,8 @@ class _ChatViewState extends State<ChatView> {
         children: [
           Column(
         children: [
+          // Disappearing messages banner
+          DisappearingMessagesBanner(channelId: widget.channelId),
           Expanded(
             child: _messages.isEmpty && _isLoading
                 ? const Center(child: CircularProgressIndicator())
@@ -1067,30 +1072,54 @@ class _ChatViewState extends State<ChatView> {
                         quotedText = parent?.message;
                       }
                       final isNewest = msgIndex == 0;
-                      return _AnimatedMessageWrapper(
-                        key: ValueKey(msg.id),
-                        animate: isNewest,
-                        child: _RichMessageBubble(
-                          message: msg,
-                          isOwn: msg.userId == _chatRepo.currentUserId,
-                          currentUserId: _chatRepo.currentUserId ?? '',
-                          authToken: _chatRepo.authToken,
-                          userStatus: _userStatuses[msg.userId],
-                          otherUserLastViewedAt: _otherUserLastViewedAt,
-                          onLongPress: () => _showMessageActions(msg),
-                          onReactionTap: (emojiName, hasOwn) {
-                            if (hasOwn) {
-                              _removeReaction(msg.id, emojiName);
-                            } else {
-                              _addReaction(msg.id, emojiName);
-                            }
-                          },
-                          onThreadTap: () => _openThread(msg),
-                          getFileUrl: _chatRepo.getFileUrl,
-                          getFileThumbnailUrl: _chatRepo.getFileThumbnailUrl,
-                          getProfileImageUrl: _chatRepo.getProfileImageUrl,
-                          quotedText: quotedText,
-                          onQuotedTap: msg.isReply ? () => _openThread(msg) : null,
+                      // Disappearing messages: check expiry
+                      final _dmCubit = context.read<DisappearingMessagesCubit>();
+                      final _dmOn = _dmCubit.isEnabled(widget.channelId);
+                      final _dmExpiring = _dmOn && _dmCubit.service.isExpiringSoon(widget.channelId, msg.createAt);
+                      final _dmExpiryText = _dmOn ? _dmCubit.service.formatRemainingTime(widget.channelId, msg.createAt) : null;
+
+                      return DisappearingMessageWrapper(
+                        expiringSoon: _dmExpiring,
+                        child: _AnimatedMessageWrapper(
+                          key: ValueKey(msg.id),
+                          animate: isNewest,
+                          child: Column(
+                            crossAxisAlignment: msg.userId == _chatRepo.currentUserId
+                                ? CrossAxisAlignment.end
+                                : CrossAxisAlignment.start,
+                            children: [
+                              _RichMessageBubble(
+                                message: msg,
+                                isOwn: msg.userId == _chatRepo.currentUserId,
+                                currentUserId: _chatRepo.currentUserId ?? '',
+                                authToken: _chatRepo.authToken,
+                                userStatus: _userStatuses[msg.userId],
+                                otherUserLastViewedAt: _otherUserLastViewedAt,
+                                onLongPress: () => _showMessageActions(msg),
+                                onReactionTap: (emojiName, hasOwn) {
+                                  if (hasOwn) {
+                                    _removeReaction(msg.id, emojiName);
+                                  } else {
+                                    _addReaction(msg.id, emojiName);
+                                  }
+                                },
+                                onThreadTap: () => _openThread(msg),
+                                getFileUrl: _chatRepo.getFileUrl,
+                                getFileThumbnailUrl: _chatRepo.getFileThumbnailUrl,
+                                getProfileImageUrl: _chatRepo.getProfileImageUrl,
+                                quotedText: quotedText,
+                                onQuotedTap: msg.isReply ? () => _openThread(msg) : null,
+                              ),
+                              if (_dmOn && _dmExpiryText != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 2),
+                                  child: DisappearingTimerIcon(
+                                    expiryText: _dmExpiryText,
+                                    expiringSoon: _dmExpiring,
+                                  ),
+                                ),
+                            ],
+                          ),
                         ),
                       );
                     },

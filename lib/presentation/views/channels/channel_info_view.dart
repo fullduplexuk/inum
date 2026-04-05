@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:inum/core/di/dependency_injector.dart';
 import 'package:inum/data/api/mattermost/mattermost_api_client.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:inum/presentation/design_system/colors.dart';
+import 'package:inum/core/services/disappearing_messages_service.dart';
+import 'package:inum/presentation/blocs/disappearing_messages/disappearing_messages_cubit.dart';
+import 'package:inum/presentation/views/chat/widgets/disappearing_messages_widgets.dart';
 
 class ChannelInfoView extends StatefulWidget {
   final String channelId;
@@ -257,6 +261,8 @@ class _ChannelInfoViewState extends State<ChannelInfoView> {
             _buildChannelHeader(),
             const SizedBox(height: 16),
             _buildMuteToggle(),
+            const SizedBox(height: 8),
+            _buildDisappearingMessagesToggle(),
             const Divider(height: 32),
             _buildMemberSection(),
             const Divider(height: 32),
@@ -323,6 +329,8 @@ class _ChannelInfoViewState extends State<ChannelInfoView> {
         ],
         const SizedBox(height: 16),
         _buildMuteToggle(),
+        const SizedBox(height: 8),
+        _buildDisappearingMessagesToggle(),
       ],
     );
   }
@@ -393,6 +401,75 @@ class _ChannelInfoViewState extends State<ChannelInfoView> {
           Center(child: Text(purpose, style: const TextStyle(fontSize: 13, color: customGreyColor500))),
         ],
       ],
+    );
+  }
+
+  Widget _buildDisappearingMessagesToggle() {
+    return BlocBuilder<DisappearingMessagesCubit, DisappearingMessagesState>(
+      builder: (context, state) {
+        final cubit = context.read<DisappearingMessagesCubit>();
+        final current = cubit.getDuration(widget.channelId);
+        final isOn = current != DisappearingDuration.off;
+
+        return Column(
+          children: [
+            SwitchListTile(
+              title: const Text('Disappearing Messages'),
+              subtitle: Text(isOn ? 'Messages auto-delete after ${current.label}' : 'Messages are kept forever'),
+              secondary: Icon(
+                Icons.timer_outlined,
+                color: isOn ? inumSecondary : customGreyColor400,
+              ),
+              value: isOn,
+              activeColor: inumSecondary,
+              onChanged: (val) {
+                if (val) {
+                  _showDurationPicker(cubit);
+                } else {
+                  cubit.setDuration(widget.channelId, DisappearingDuration.off);
+                }
+              },
+            ),
+            if (isOn)
+              Padding(
+                padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
+                child: DisappearingDurationPicker(
+                  currentDuration: current,
+                  onChanged: (d) => cubit.setDuration(widget.channelId, d),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showDurationPicker(DisappearingMessagesCubit cubit) {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Auto-delete messages after:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              ...DisappearingDuration.values.where((d) => d != DisappearingDuration.off).map((d) {
+                return ListTile(
+                  title: Text(d.label),
+                  leading: const Icon(Icons.timer_outlined),
+                  onTap: () {
+                    cubit.setDuration(widget.channelId, d);
+                    Navigator.pop(ctx);
+                  },
+                );
+              }),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
