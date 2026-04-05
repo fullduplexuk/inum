@@ -50,6 +50,11 @@ class ChannelListCubit extends Cubit<ChannelListState> {
     }
   }
 
+  /// Refresh channel list (e.g. after marking a channel as read).
+  void refresh() {
+    loadChannels();
+  }
+
   @override
   Future<void> close() {
     _channelsSubscription?.cancel();

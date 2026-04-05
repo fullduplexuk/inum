@@ -364,6 +364,24 @@ class ChatRepository implements IChatRepository {
     return ch['id'] as String? ?? '';
   }
 
+  @override
+  Future<Map<String, String>> getUserStatuses(List<String> userIds) async {
+    final result = <String, String>{};
+    if (userIds.isEmpty) return result;
+    try {
+      final statuses = await _apiClient.getUserStatusesByIds(userIds);
+      for (final s in statuses) {
+        final data = s as Map<String, dynamic>;
+        final uid = data['user_id'] as String? ?? '';
+        final status = data['status'] as String? ?? 'offline';
+        if (uid.isNotEmpty) result[uid] = status;
+      }
+    } catch (e) {
+      debugPrint('Error fetching user statuses: $e');
+    }
+    return result;
+  }
+
   void dispose() {
     _wsSubscription?.cancel();
     _channelsController.close();

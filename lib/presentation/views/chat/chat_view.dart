@@ -17,6 +17,7 @@ import 'package:inum/core/constants/enums/router_enum.dart';
 import 'package:inum/presentation/views/chat/widgets/voice_message_recorder.dart';
 import 'package:inum/presentation/views/chat/widgets/voice_message_player.dart';
 import 'package:inum/presentation/views/chat/widgets/sticker_picker.dart';
+import 'package:inum/presentation/blocs/chat_session/chat_session_cubit.dart';
 
 // Emoji name to unicode mapping for common reactions
 const Map<String, String> kEmojiMap = {
@@ -100,6 +101,9 @@ class _ChatViewState extends State<ChatView> {
 
   late final IChatRepository _chatRepo;
 
+  // User statuses cache (userId -> status string: online/away/dnd/offline)
+  final Map<String, String> _userStatuses = {};
+
   @override
   void initState() {
     super.initState();
@@ -108,10 +112,18 @@ class _ChatViewState extends State<ChatView> {
     _listenToWsEvents();
     _scrollController.addListener(_onScroll);
     _chatRepo.markChannelAsRead(widget.channelId);
+    // Set active channel to suppress notifications for it
+    try {
+      context.read<ChatSessionCubit>().setActiveChannel(widget.channelId);
+    } catch (_) {}
   }
 
   @override
   void dispose() {
+    // Clear active channel so notifications resume
+    try {
+      context.read<ChatSessionCubit>().setActiveChannel(null);
+    } catch (_) {}
     _messageController.dispose();
     _scrollController.dispose();
     _wsSubscription?.cancel();
@@ -151,7 +163,26 @@ class _ChatViewState extends State<ChatView> {
       final postJson = jsonDecode(postStr) as Map<String, dynamic>;
       if (postJson['channel_id'] == widget.channelId) {
         final msg = MessageModel.fromMattermost(postJson);
-        if (mounted) setState(() => _messages.insert(0, msg));
+        // Deduplicate: own messages arrive via REST response + WS event
+        if (_messages.any((m) => m.id == msg.id)) return;
+        if (mounted) {
+          setState(() => _messages.insert(0, msg));
+          // Auto-scroll to bottom if user is near the bottom (reverse list: 0 = bottom)
+          if (_scrollController.hasClients &&
+              _scrollController.position.pixels < 150) {
+            Future.delayed(const Duration(milliseconds: 100), () {
+              if (_scrollController.hasClients) {
+                _scrollController.animateTo(
+                  0,
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeOut,
+                );
+              }
+            });
+          }
+          // Mark channel as read since we are viewing it
+          _chatRepo.markChannelAsRead(widget.channelId);
+        }
       }
     } catch (_) {}
   }
@@ -241,12 +272,35 @@ class _ChatViewState extends State<ChatView> {
         _page++;
         if (messages.length < 60) _hasMore = false;
       });
+      // Fetch user statuses for loaded messages
+      _fetchUserStatuses(messages);
     }
+  }
+
+  Future<void> _fetchUserStatuses(List<MessageModel> messages) async {
+    final userIds = messages.map((m) => m.userId).toSet().toList();
+    userIds.removeWhere((id) => _userStatuses.containsKey(id));
+    if (userIds.isEmpty) return;
+    try {
+      final statuses = await _chatRepo.getUserStatuses(userIds);
+      if (mounted) {
+        setState(() => _userStatuses.addAll(statuses));
+      }
+    } catch (_) {}
   }
 
   void _onScroll() {
     if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
       _loadMessages();
+    }
+  }
+
+  static Color _onlineStatusColor(String status) {
+    switch (status) {
+      case 'online': return const Color(0xFF4CAF50);
+      case 'away': return const Color(0xFFFFC107);
+      case 'dnd': return const Color(0xFFF44336);
+      default: return const Color(0xFF9E9E9E);
     }
   }
 
@@ -571,7 +625,30 @@ class _ChatViewState extends State<ChatView> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.channelName.isNotEmpty ? widget.channelName : 'Chat'),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(widget.channelName.isNotEmpty ? widget.channelName : 'Chat'),
+            if (_userStatuses.isNotEmpty)
+              Builder(builder: (context) {
+                // Show first non-own user status (useful for DM)
+                final otherStatuses = _userStatuses.entries
+                    .where((e) => e.key != _chatRepo.currentUserId);
+                if (otherStatuses.isEmpty) return const SizedBox.shrink();
+                final status = otherStatuses.first.value;
+                return Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: Container(
+                    width: 10, height: 10,
+                    decoration: BoxDecoration(
+                      color: _onlineStatusColor(status),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                );
+              }),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.call, size: 22),
@@ -625,6 +702,7 @@ class _ChatViewState extends State<ChatView> {
                         isOwn: msg.userId == _chatRepo.currentUserId,
                         currentUserId: _chatRepo.currentUserId ?? '',
                         authToken: _chatRepo.authToken,
+                        userStatus: _userStatuses[msg.userId],
                         onLongPress: () => _showMessageActions(msg),
                         onReactionTap: (emojiName, hasOwn) {
                           if (hasOwn) {
@@ -811,6 +889,7 @@ class _RichMessageBubble extends StatelessWidget {
   final bool isOwn;
   final String currentUserId;
   final String? authToken;
+  final String? userStatus;
   final VoidCallback onLongPress;
   final void Function(String emojiName, bool hasOwn) onReactionTap;
   final VoidCallback onThreadTap;
@@ -823,6 +902,7 @@ class _RichMessageBubble extends StatelessWidget {
     required this.isOwn,
     required this.currentUserId,
     this.authToken,
+    this.userStatus,
     required this.onLongPress,
     required this.onReactionTap,
     required this.onThreadTap,
@@ -830,6 +910,15 @@ class _RichMessageBubble extends StatelessWidget {
     required this.getFileThumbnailUrl,
     required this.getProfileImageUrl,
   });
+
+  static Color _statusColor(String status) {
+    switch (status) {
+      case "online": return const Color(0xFF4CAF50);
+      case "away": return const Color(0xFFFFC107);
+      case "dnd": return const Color(0xFFF44336);
+      default: return const Color(0xFF9E9E9E);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -864,6 +953,7 @@ class _RichMessageBubble extends StatelessWidget {
 
     return GestureDetector(
       onLongPress: onLongPress,
+      onSecondaryTapUp: (_) => onLongPress(),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 3),
         child: Column(
@@ -874,11 +964,30 @@ class _RichMessageBubble extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 if (!isOwn) ...[
-                  UserAvatar(
-                    imageUrl: getProfileImageUrl(message.userId),
-                    name: message.userId,
-                    radius: 16,
-                    authToken: authToken,
+                  Stack(
+                    children: [
+                      UserAvatar(
+                        imageUrl: getProfileImageUrl(message.userId),
+                        name: message.userId,
+                        radius: 16,
+                        authToken: authToken,
+                      ),
+                      if (userStatus != null)
+                        Positioned(
+                          bottom: 0, right: 0,
+                          child: Container(
+                            width: 10, height: 10,
+                            decoration: BoxDecoration(
+                              color: _statusColor(userStatus!),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: Theme.of(context).scaffoldBackgroundColor,
+                                width: 1.5,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                   const SizedBox(width: 8),
                 ],

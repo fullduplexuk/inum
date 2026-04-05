@@ -201,6 +201,10 @@ class MattermostApiClient {
     return _request('GET', '/users/$userId/status');
   }
 
+  Future<List<dynamic>> getUserStatusesByIds(List<String> userIds) async {
+    return _requestList('POST', '/users/status/ids', body: userIds);
+  }
+
   Future<Map<String, dynamic>> updateStatus(String userId, String status) async {
     return _request('PUT', '/users/$userId/status', body: {
       'user_id': userId,

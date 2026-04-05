@@ -40,6 +40,9 @@ abstract class IChatRepository {
   // User lookup for DM display names
   Future<Map<String, String>> getUserDisplayNames(List<String> userIds);
 
+  // User statuses
+  Future<Map<String, String>> getUserStatuses(List<String> userIds);
+
   // Search users (for new chat)
   Future<List<Map<String, dynamic>>> searchUsers(String term);
 
