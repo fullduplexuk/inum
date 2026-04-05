@@ -28,6 +28,7 @@ enum RouterEnum {
   channelInfoView('/channels/info'),
   // Phase 9: Chat features
   savedMessagesView('/saved-messages'),
+  blockedUsersView('/settings/blocked-users'),
   searchView('/search');
 
   final String routeName;

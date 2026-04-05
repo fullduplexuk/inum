@@ -7,6 +7,8 @@ import 'package:inum/data/api/mattermost/mattermost_api_client.dart';
 import 'package:inum/presentation/blocs/contacts/contacts_cubit.dart';
 import 'package:inum/presentation/blocs/contacts/contacts_state.dart';
 import 'package:inum/presentation/design_system/colors.dart';
+import 'package:inum/core/services/blocked_users_service.dart';
+import 'package:inum/presentation/views/settings/blocked_users_view.dart';
 
 class ContactsView extends StatefulWidget {
   const ContactsView({super.key});
@@ -243,6 +245,22 @@ class _ContactsViewState extends State<ContactsView> {
                                       onTap: () {
                                         Navigator.pop(ctx);
                                         _smsContact(contact);
+                                      },
+                                    ),
+                                    ListTile(
+                                      leading: const Icon(Icons.block, color: Colors.red),
+                                      title: const Text('Block User', style: TextStyle(color: Colors.red)),
+                                      onTap: () {
+                                        Navigator.pop(ctx);
+                                        showBlockUserDialog(context, contact.id, contact.displayName);
+                                      },
+                                    ),
+                                    ListTile(
+                                      leading: const Icon(Icons.flag_outlined, color: Colors.orange),
+                                      title: const Text('Report User'),
+                                      onTap: () {
+                                        Navigator.pop(ctx);
+                                        showReportUserDialog(context, contact.id, contact.displayName);
                                       },
                                     ),
                                   ],

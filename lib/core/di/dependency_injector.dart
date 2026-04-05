@@ -26,6 +26,7 @@ import "package:inum/presentation/blocs/recordings/recordings_cubit.dart";
 import "package:inum/presentation/blocs/sms/sms_cubit.dart";
 import "package:inum/core/services/disappearing_messages_service.dart";
 import "package:inum/core/services/custom_status_service.dart";
+import "package:inum/core/services/blocked_users_service.dart";
 import "package:inum/presentation/blocs/disappearing_messages/disappearing_messages_cubit.dart";
 import "package:inum/presentation/blocs/custom_status/custom_status_cubit.dart";
 
@@ -130,6 +131,11 @@ Future<void> setupDependencies() async {
   );
   getIt.registerFactory<DisappearingMessagesCubit>(
     () => DisappearingMessagesCubit(service: getIt<DisappearingMessagesService>()),
+  );
+
+  // Blocked Users
+  getIt.registerFactory<BlockedUsersCubit>(
+    () => BlockedUsersCubit(),
   );
 
   // Custom Status

@@ -9,6 +9,7 @@ import 'package:inum/presentation/blocs/chat_session/chat_session_cubit.dart';
 import 'package:inum/presentation/blocs/theme/theme_cubit.dart';
 import 'package:inum/presentation/blocs/theme/theme_state.dart';
 import 'package:inum/presentation/design_system/colors.dart';
+import 'package:inum/core/constants/enums/router_enum.dart' show RouterEnum;
 
 class SettingsView extends StatefulWidget {
   const SettingsView({super.key});
@@ -181,6 +182,15 @@ class _SettingsViewState extends State<SettingsView> {
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () =>
                     context.push(RouterEnum.qrLoginView.routeName),
+              ),
+
+              ListTile(
+                leading: const Icon(Icons.block),
+                title: const Text('Blocked Users'),
+                subtitle: const Text('Manage blocked users'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () =>
+                    context.push(RouterEnum.blockedUsersView.routeName),
               ),
 
               const Divider(),

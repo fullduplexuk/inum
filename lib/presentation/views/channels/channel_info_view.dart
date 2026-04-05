@@ -6,6 +6,11 @@ import 'package:inum/presentation/design_system/colors.dart';
 import 'package:inum/core/services/disappearing_messages_service.dart';
 import 'package:inum/presentation/blocs/disappearing_messages/disappearing_messages_cubit.dart';
 import 'package:inum/presentation/views/chat/widgets/disappearing_messages_widgets.dart';
+import 'package:inum/presentation/views/channels/media_gallery_view.dart';
+import 'package:inum/core/services/blocked_users_service.dart';
+import 'package:inum/presentation/views/settings/blocked_users_view.dart';
+import 'package:inum/core/interfaces/i_chat_repository.dart';
+import 'package:inum/domain/models/chat/message_model.dart';
 
 class ChannelInfoView extends StatefulWidget {
   final String channelId;
@@ -30,6 +35,8 @@ class _ChannelInfoViewState extends State<ChannelInfoView> {
   bool _isLoading = true;
   bool _isMuted = false;
   bool _isEditing = false;
+  List<MessageModel> _allMessages = [];
+  bool _isLoadingMedia = false;
   final _nameController = TextEditingController();
   final _headerController = TextEditingController();
   final _purposeController = TextEditingController();
@@ -38,6 +45,7 @@ class _ChannelInfoViewState extends State<ChannelInfoView> {
   void initState() {
     super.initState();
     _loadChannelInfo();
+    _loadChannelMedia();
   }
 
   @override
@@ -88,6 +96,22 @@ class _ChannelInfoViewState extends State<ChannelInfoView> {
           SnackBar(content: Text('Failed to load channel info: $e')),
         );
       }
+    }
+  }
+
+    Future<void> _loadChannelMedia() async {
+    setState(() => _isLoadingMedia = true);
+    try {
+      final chatRepo = getIt<IChatRepository>();
+      final messages = await chatRepo.getChannelMessages(widget.channelId, 0);
+      if (mounted) {
+        setState(() {
+          _allMessages = messages;
+          _isLoadingMedia = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLoadingMedia = false);
     }
   }
 
@@ -266,6 +290,18 @@ class _ChannelInfoViewState extends State<ChannelInfoView> {
             const Divider(height: 32),
             _buildMemberSection(),
             const Divider(height: 32),
+            // Shared media
+            const Text('Shared Media',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            if (_isLoadingMedia)
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else
+              MediaGalleryTabs(channelId: widget.channelId, messages: _allMessages),
+            const Divider(height: 32),
             _buildLeaveButton(),
           ],
         ],
@@ -331,6 +367,42 @@ class _ChannelInfoViewState extends State<ChannelInfoView> {
         _buildMuteToggle(),
         const SizedBox(height: 8),
         _buildDisappearingMessagesToggle(),
+        const Divider(height: 32),
+        // Block & Report
+        _buildBlockReportSection(otherUserId),
+        const Divider(height: 32),
+        // Shared media
+        if (_isLoadingMedia)
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else
+          MediaGalleryTabs(channelId: widget.channelId, messages: _allMessages),
+      ],
+    );
+  }
+
+  Widget _buildBlockReportSection(String userId) {
+    final user = _userCache[userId] ?? {};
+    final firstName = user['first_name'] as String? ?? '';
+    final lastName = user['last_name'] as String? ?? '';
+    final username = user['username'] as String? ?? '';
+    final dn = '$firstName $lastName'.trim();
+    final displayName = dn.isNotEmpty ? dn : username;
+
+    return Column(
+      children: [
+        ListTile(
+          leading: const Icon(Icons.block, color: errorColor),
+          title: const Text('Block User', style: TextStyle(color: errorColor)),
+          onTap: () => showBlockUserDialog(context, userId, displayName),
+        ),
+        ListTile(
+          leading: const Icon(Icons.flag_outlined, color: customOrangeColor),
+          title: const Text('Report User'),
+          onTap: () => showReportUserDialog(context, userId, displayName),
+        ),
       ],
     );
   }

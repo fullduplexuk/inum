@@ -26,6 +26,7 @@ import 'package:inum/presentation/views/settings/notification_settings_view.dart
 import 'package:inum/presentation/views/meetings/schedule_meeting_view.dart';
 import 'package:inum/presentation/views/channels/create_channel_view.dart';
 import 'package:inum/presentation/views/channels/channel_info_view.dart';
+import 'package:inum/presentation/views/settings/blocked_users_view.dart';
 
 import 'package:inum/presentation/views/saved/saved_messages_view.dart';
 import 'package:inum/presentation/views/search/message_search_view.dart';
@@ -242,6 +243,12 @@ class AppRouter {
         pageBuilder: (context, state) =>
             customPageBuilderWidget(
                 context, state, const CreateChannelView()),
+      ),
+      GoRoute(
+        path: RouterEnum.blockedUsersView.routeName,
+        pageBuilder: (context, state) =>
+            customPageBuilderWidget(
+                context, state, const BlockedUsersView()),
       ),
       GoRoute(
         path: RouterEnum.channelInfoView.routeName,

@@ -24,6 +24,7 @@ import "package:inum/presentation/blocs/theme/theme_cubit.dart";
 import "package:inum/presentation/blocs/theme/theme_state.dart";
 import "package:inum/presentation/design_system/theme.dart";
 import "package:inum/presentation/views/call/incoming_call_screen.dart";
+import 'package:inum/core/services/blocked_users_service.dart';
 
 class AppWidget extends StatelessWidget {
   const AppWidget({super.key});
@@ -65,6 +66,9 @@ class AppWidget extends StatelessWidget {
         BlocProvider<CustomStatusCubit>(
           create: (_) => getIt<CustomStatusCubit>(),
         ),
+            BlocProvider<BlockedUsersCubit>(
+              create: (_) => getIt<BlockedUsersCubit>(),
+            ),
       ],
       child: BlocBuilder<ThemeCubit, ThemeState>(
         builder: (context, themeState) {

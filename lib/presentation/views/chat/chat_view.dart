@@ -29,6 +29,8 @@ import 'package:inum/presentation/views/chat/widgets/unread_separator.dart';
 import 'package:inum/presentation/views/chat/widgets/disappearing_messages_widgets.dart';
 import 'package:inum/presentation/blocs/disappearing_messages/disappearing_messages_cubit.dart';
 import 'package:inum/core/services/disappearing_messages_service.dart';
+import 'package:inum/presentation/views/chat/widgets/multi_select_bar.dart';
+import 'package:inum/core/services/blocked_users_service.dart';
 
 // Emoji name to unicode mapping for common reactions
 const Map<String, String> kEmojiMap = {
@@ -109,6 +111,9 @@ class _ChatViewState extends State<ChatView> {
   bool _showExpandedActions = false;
   bool _showStickerPicker = false;
   bool _isVoiceRecording = false;
+
+  // Multi-select state
+  MultiSelectState _multiSelect = const MultiSelectState();
 
   // Reply state
   MessageModel? _replyingTo;
@@ -704,6 +709,90 @@ class _ChatViewState extends State<ChatView> {
     setState(() => _showStickerPicker = false);
   }
 
+  // ── Multi-Select ──
+
+  void _enterSelectionMode(String messageId) {
+    setState(() {
+      _multiSelect = MultiSelectState(
+        isActive: true,
+        selectedIds: {messageId},
+      );
+    });
+  }
+
+  void _toggleSelection(String messageId) {
+    if (!_multiSelect.isActive) return;
+    final ids = Set<String>.from(_multiSelect.selectedIds);
+    if (ids.contains(messageId)) {
+      ids.remove(messageId);
+    } else {
+      ids.add(messageId);
+    }
+    setState(() {
+      _multiSelect = _multiSelect.copyWith(
+        selectedIds: ids,
+        isActive: ids.isNotEmpty,
+      );
+    });
+  }
+
+  void _exitSelectionMode() {
+    setState(() => _multiSelect = const MultiSelectState());
+  }
+
+  void _copySelected() {
+    final text = combineSelectedMessages(_messages, _multiSelect.selectedIds);
+    Clipboard.setData(ClipboardData(text: text));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Copied to clipboard'), duration: Duration(seconds: 1)),
+    );
+    _exitSelectionMode();
+  }
+
+  Future<void> _forwardSelected() async {
+    final channels = await _chatRepo.getChannelList();
+    if (!mounted) return;
+    final selected = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) => _ForwardPickerDialog(channels: channels),
+    );
+    if (selected == null) return;
+    final targetId = selected['id'] as String? ?? '';
+    if (targetId.isEmpty) return;
+
+    final text = combineSelectedMessages(_messages, _multiSelect.selectedIds);
+    try {
+      await _chatRepo.sendMessage(targetId, 'Forwarded messages:\n$text');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Messages forwarded'), duration: Duration(seconds: 1)),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Forward failed: $e')),
+        );
+      }
+    }
+    _exitSelectionMode();
+  }
+
+  Future<void> _deleteSelected() async {
+    final ownIds = _multiSelect.selectedIds.where((id) {
+      final msg = _messages.where((m) => m.id == id).firstOrNull;
+      return msg != null && msg.userId == _chatRepo.currentUserId;
+    }).toList();
+    if (ownIds.isEmpty) return;
+
+    for (final id in ownIds) {
+      try {
+        await _chatRepo.deleteMessage(id);
+      } catch (_) {}
+    }
+    _exitSelectionMode();
+  }
+
   void _showMessageActions(MessageModel msg) {
     final isOwn = msg.userId == _chatRepo.currentUserId;
     showModalBottomSheet(
@@ -820,6 +909,15 @@ class _ChatViewState extends State<ChatView> {
               onTap: () {
                 Navigator.pop(ctx);
                 _pinMessage(msg);
+              },
+            ),
+            // Select (multi-select)
+            ListTile(
+              leading: const Icon(Icons.check_box_outlined),
+              title: const Text('Select'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _enterSelectionMode(msg.id);
               },
             ),
             if (isOwn) ...[
@@ -1078,6 +1176,35 @@ class _ChatViewState extends State<ChatView> {
                       final _dmExpiring = _dmOn && _dmCubit.service.isExpiringSoon(widget.channelId, msg.createAt);
                       final _dmExpiryText = _dmOn ? _dmCubit.service.formatRemainingTime(widget.channelId, msg.createAt) : null;
 
+                      // Blocked message check
+                      final _blockedCubit = context.read<BlockedUsersCubit>();
+                      final _isBlockedUser = _blockedCubit.isBlocked(msg.userId);
+                      if (_isBlockedUser) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: Row(
+                            children: [
+                              if (_multiSelect.isActive)
+                                MessageSelectCheckbox(
+                                  isSelected: _multiSelect.isSelected(msg.id),
+                                  isSelectionMode: true,
+                                  onTap: () => _toggleSelection(msg.id),
+                                ),
+                              const Expanded(
+                                child: Text(
+                                  '[Blocked message]',
+                                  style: TextStyle(
+                                    fontStyle: FontStyle.italic,
+                                    color: customGreyColor400,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+
                       return DisappearingMessageWrapper(
                         expiringSoon: _dmExpiring,
                         child: _AnimatedMessageWrapper(
@@ -1095,7 +1222,16 @@ class _ChatViewState extends State<ChatView> {
                                 authToken: _chatRepo.authToken,
                                 userStatus: _userStatuses[msg.userId],
                                 otherUserLastViewedAt: _otherUserLastViewedAt,
-                                onLongPress: () => _showMessageActions(msg),
+                                onLongPress: () {
+                                  if (_multiSelect.isActive) {
+                                    _toggleSelection(msg.id);
+                                  } else {
+                                    _showMessageActions(msg);
+                                  }
+                                },
+                                onTap: _multiSelect.isActive ? () => _toggleSelection(msg.id) : null,
+                                isSelected: _multiSelect.isSelected(msg.id),
+                                isSelectionMode: _multiSelect.isActive,
                                 onReactionTap: (emojiName, hasOwn) {
                                   if (hasOwn) {
                                     _removeReaction(msg.id, emojiName);
@@ -1323,6 +1459,22 @@ class _ChatViewState extends State<ChatView> {
           ),
         ],
       ),
+          // Multi-select action bar
+          if (_multiSelect.isActive)
+            Positioned(
+              left: 0, right: 0, bottom: 0,
+              child: MultiSelectActionBar(
+                selectedCount: _multiSelect.count,
+                onCopy: _copySelected,
+                onForward: _forwardSelected,
+                onDelete: _deleteSelected,
+                onCancel: _exitSelectionMode,
+                canDelete: _multiSelect.selectedIds.any((id) {
+                  final msg = _messages.where((m) => m.id == id).firstOrNull;
+                  return msg != null && msg.userId == _chatRepo.currentUserId;
+                }),
+              ),
+            ),
           // Drag overlay
           if (_isDragOver)
             Positioned.fill(
@@ -1431,6 +1583,9 @@ class _RichMessageBubble extends StatelessWidget {
   final String Function(String) getProfileImageUrl;
   final VoidCallback? onQuotedTap;
   final String? quotedText;
+  final VoidCallback? onTap;
+  final bool isSelected;
+  final bool isSelectionMode;
 
   const _RichMessageBubble({
     required this.message,
@@ -1447,6 +1602,9 @@ class _RichMessageBubble extends StatelessWidget {
     required this.getProfileImageUrl,
     this.onQuotedTap,
     this.quotedText,
+    this.onTap,
+    this.isSelected = false,
+    this.isSelectionMode = false,
   });
 
   static Color _statusColor(String status) {
@@ -1491,8 +1649,12 @@ class _RichMessageBubble extends StatelessWidget {
 
     return GestureDetector(
       onLongPress: onLongPress,
+      onTap: onTap,
       onSecondaryTapUp: (_) => onLongPress(),
-      child: Padding(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        color: isSelected ? inumPrimary.withAlpha(20) : Colors.transparent,
+        child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 3),
         child: Column(
           crossAxisAlignment: isOwn ? CrossAxisAlignment.end : CrossAxisAlignment.start,
@@ -1501,6 +1663,12 @@ class _RichMessageBubble extends StatelessWidget {
               mainAxisAlignment: isOwn ? MainAxisAlignment.end : MainAxisAlignment.start,
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
+                if (isSelectionMode)
+                  MessageSelectCheckbox(
+                    isSelected: isSelected,
+                    isSelectionMode: isSelectionMode,
+                    onTap: onTap ?? () {},
+                  ),
                 if (!isOwn) ...[
                   Stack(
                     children: [
@@ -1615,6 +1783,7 @@ class _RichMessageBubble extends StatelessWidget {
               ),
           ],
         ),
+      ),
       ),
     );
   }
