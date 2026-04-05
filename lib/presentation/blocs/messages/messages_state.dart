@@ -20,27 +20,31 @@ class MessagesLoaded extends MessagesState {
   final List<MessageModel> messages;
   final bool hasMore;
   final String channelId;
+  final int? lastViewedAt;
 
   const MessagesLoaded({
     required this.messages,
     required this.hasMore,
     required this.channelId,
+    this.lastViewedAt,
   });
 
   MessagesLoaded copyWith({
     List<MessageModel>? messages,
     bool? hasMore,
     String? channelId,
+    int? lastViewedAt,
   }) {
     return MessagesLoaded(
       messages: messages ?? this.messages,
       hasMore: hasMore ?? this.hasMore,
       channelId: channelId ?? this.channelId,
+      lastViewedAt: lastViewedAt ?? this.lastViewedAt,
     );
   }
 
   @override
-  List<Object?> get props => [messages, hasMore, channelId];
+  List<Object?> get props => [messages, hasMore, channelId, lastViewedAt];
 }
 
 class MessagesError extends MessagesState {

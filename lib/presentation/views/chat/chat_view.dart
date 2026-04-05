@@ -25,6 +25,7 @@ import 'package:inum/presentation/blocs/saved/saved_messages_cubit.dart';
 import 'package:inum/presentation/blocs/saved/saved_messages_state.dart';
 import 'package:inum/presentation/views/chat/widgets/formatted_text.dart';
 import 'package:inum/presentation/views/chat/widgets/poll_widget.dart';
+import 'package:inum/presentation/views/chat/widgets/unread_separator.dart';
 
 // Emoji name to unicode mapping for common reactions
 const Map<String, String> kEmojiMap = {
@@ -110,6 +111,12 @@ class _ChatViewState extends State<ChatView> {
   MessageModel? _replyingTo;
   String? _replyingSenderName;
 
+  // Unread separator state
+  int? _lastViewedAt;
+  int? _unreadSeparatorIndex;
+  bool _separatorVisible = false;
+  final GlobalKey _separatorKey = GlobalKey();
+
   // UX polish: drag overlay, last seen, read receipts
   bool _isDragOver = false;
   String? _lastSeenText;
@@ -129,7 +136,7 @@ class _ChatViewState extends State<ChatView> {
     _loadMessages();
     _listenToWsEvents();
     _scrollController.addListener(_onScroll);
-    _chatRepo.markChannelAsRead(widget.channelId);
+    _fetchLastViewedAt();
     // Set active channel to suppress notifications for it
     try {
       context.read<ChatSessionCubit>().setActiveChannel(widget.channelId);
@@ -384,6 +391,50 @@ class _ChatViewState extends State<ChatView> {
     }
   }
 
+  Future<void> _fetchLastViewedAt() async {
+    try {
+      final memberData = await _chatRepo.getChannelMember(widget.channelId);
+      final lva = memberData['last_viewed_at'] as int? ?? 0;
+      if (mounted && lva > 0) {
+        setState(() => _lastViewedAt = lva);
+        _computeSeparator();
+      }
+    } catch (_) {}
+    // Mark as read AFTER capturing last_viewed_at
+    _chatRepo.markChannelAsRead(widget.channelId);
+  }
+
+  void _computeSeparator() {
+    if (_lastViewedAt == null || _messages.isEmpty) return;
+    final idx = computeUnreadSeparatorIndex(_messages, _lastViewedAt);
+    if (idx != null && mounted) {
+      setState(() {
+        _unreadSeparatorIndex = idx;
+        _separatorVisible = true;
+      });
+      // Auto-scroll to separator after a short delay
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted && _scrollController.hasClients && _unreadSeparatorIndex != null) {
+          final targetIndex = _unreadSeparatorIndex! + 1;
+          final approxOffset = targetIndex * 72.0;
+          if (approxOffset > 200) {
+            _scrollController.animateTo(
+              approxOffset - 100,
+              duration: const Duration(milliseconds: 400),
+              curve: Curves.easeOut,
+            );
+          }
+        }
+      });
+      // Clear separator visibility after 5 seconds
+      Future.delayed(const Duration(seconds: 5), () {
+        if (mounted) {
+          setState(() => _separatorVisible = false);
+        }
+      });
+    }
+  }
+
   Future<void> _loadMessages() async {
     if (_isLoading || !_hasMore) return;
     setState(() => _isLoading = true);
@@ -396,6 +447,10 @@ class _ChatViewState extends State<ChatView> {
         _page++;
         if (messages.length < 60) _hasMore = false;
       });
+      // Compute separator after first load
+      if (_page == 1) {
+        _computeSeparator();
+      }
       // Fetch user statuses for loaded messages
       _fetchUserStatuses(messages);
     }
@@ -977,9 +1032,16 @@ class _ChatViewState extends State<ChatView> {
                     controller: _scrollController,
                     reverse: true,
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    itemCount: _messages.length + (_hasMore ? 1 : 0),
+                    itemCount: _messages.length + (_hasMore ? 1 : 0) + (_separatorVisible && _unreadSeparatorIndex != null ? 1 : 0),
                     itemBuilder: (context, index) {
-                      if (index == _messages.length) {
+                      // Determine if separator should be inserted
+                      final sepIdx = (_separatorVisible && _unreadSeparatorIndex != null)
+                          ? _unreadSeparatorIndex! + 1
+                          : -1;
+                      final totalItems = _messages.length + (sepIdx >= 0 ? 1 : 0);
+
+                      // Loading indicator at the end
+                      if (_hasMore && index == totalItems) {
                         return const Center(
                           child: Padding(
                             padding: EdgeInsets.all(16),
@@ -987,34 +1049,49 @@ class _ChatViewState extends State<ChatView> {
                           ),
                         );
                       }
-                      final msg = _messages[index];
+
+                      // Unread separator
+                      if (sepIdx >= 0 && index == sepIdx) {
+                        return UnreadSeparator(key: _separatorKey);
+                      }
+
+                      // Adjust index for messages after separator
+                      final msgIndex = (sepIdx >= 0 && index > sepIdx) ? index - 1 : index;
+                      if (msgIndex >= _messages.length) return const SizedBox.shrink();
+
+                      final msg = _messages[msgIndex];
                       // Find quoted text for replies
                       String? quotedText;
                       if (msg.isReply) {
                         final parent = _messages.where((m) => m.id == msg.rootId).firstOrNull;
                         quotedText = parent?.message;
                       }
-                      return _RichMessageBubble(
-                        message: msg,
-                        isOwn: msg.userId == _chatRepo.currentUserId,
-                        currentUserId: _chatRepo.currentUserId ?? '',
-                        authToken: _chatRepo.authToken,
-                        userStatus: _userStatuses[msg.userId],
-                        otherUserLastViewedAt: _otherUserLastViewedAt,
-                        onLongPress: () => _showMessageActions(msg),
-                        onReactionTap: (emojiName, hasOwn) {
-                          if (hasOwn) {
-                            _removeReaction(msg.id, emojiName);
-                          } else {
-                            _addReaction(msg.id, emojiName);
-                          }
-                        },
-                        onThreadTap: () => _openThread(msg),
-                        getFileUrl: _chatRepo.getFileUrl,
-                        getFileThumbnailUrl: _chatRepo.getFileThumbnailUrl,
-                        getProfileImageUrl: _chatRepo.getProfileImageUrl,
-                        quotedText: quotedText,
-                        onQuotedTap: msg.isReply ? () => _openThread(msg) : null,
+                      final isNewest = msgIndex == 0;
+                      return _AnimatedMessageWrapper(
+                        key: ValueKey(msg.id),
+                        animate: isNewest,
+                        child: _RichMessageBubble(
+                          message: msg,
+                          isOwn: msg.userId == _chatRepo.currentUserId,
+                          currentUserId: _chatRepo.currentUserId ?? '',
+                          authToken: _chatRepo.authToken,
+                          userStatus: _userStatuses[msg.userId],
+                          otherUserLastViewedAt: _otherUserLastViewedAt,
+                          onLongPress: () => _showMessageActions(msg),
+                          onReactionTap: (emojiName, hasOwn) {
+                            if (hasOwn) {
+                              _removeReaction(msg.id, emojiName);
+                            } else {
+                              _addReaction(msg.id, emojiName);
+                            }
+                          },
+                          onThreadTap: () => _openThread(msg),
+                          getFileUrl: _chatRepo.getFileUrl,
+                          getFileThumbnailUrl: _chatRepo.getFileThumbnailUrl,
+                          getProfileImageUrl: _chatRepo.getProfileImageUrl,
+                          quotedText: quotedText,
+                          onQuotedTap: msg.isReply ? () => _openThread(msg) : null,
+                        ),
                       );
                     },
                   ),
@@ -1243,6 +1320,66 @@ class _ChatViewState extends State<ChatView> {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+// --- Animated Message Wrapper ---
+
+class _AnimatedMessageWrapper extends StatefulWidget {
+  final Widget child;
+  final bool animate;
+
+  const _AnimatedMessageWrapper({
+    super.key,
+    required this.child,
+    this.animate = false,
+  });
+
+  @override
+  State<_AnimatedMessageWrapper> createState() => _AnimatedMessageWrapperState();
+}
+
+class _AnimatedMessageWrapperState extends State<_AnimatedMessageWrapper>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<Offset> _slideAnimation;
+  late final Animation<double> _fadeAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 350),
+    );
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.3),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
+    _fadeAnimation = CurvedAnimation(parent: _controller, curve: Curves.easeIn);
+
+    if (widget.animate) {
+      _controller.forward();
+    } else {
+      _controller.value = 1.0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SlideTransition(
+      position: _slideAnimation,
+      child: FadeTransition(
+        opacity: _fadeAnimation,
+        child: widget.child,
       ),
     );
   }

@@ -265,6 +265,11 @@ class MattermostApiClient {
     return _requestList('GET', '/users/$userId/channel_members');
   }
 
+  /// Get the channel membership for a specific user in a specific channel
+  Future<Map<String, dynamic>> getChannelMember(String channelId, String userId) async {
+    return _request('GET', '/channels/\$channelId/members/\$userId');
+  }
+
   // --- Posts ---
 
   Future<Map<String, dynamic>> getPosts(String channelId, {int page = 0, int perPage = 60}) async {

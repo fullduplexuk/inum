@@ -390,6 +390,13 @@ class ChatRepository implements IChatRepository {
   }
 
   @override
+  Future<Map<String, dynamic>> getChannelMember(String channelId) async {
+    final uid = _apiClient.currentUserId;
+    if (uid == null) return {};
+    return _apiClient.getChannelMember(channelId, uid);
+  }
+
+  @override
   Future<Map<String, dynamic>> getUserDetails(String userId) async {
     return _apiClient.getUser(userId);
   }

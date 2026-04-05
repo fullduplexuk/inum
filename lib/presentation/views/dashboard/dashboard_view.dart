@@ -198,7 +198,7 @@ class _DashboardViewState extends State<DashboardView> {
   }
 }
 
-class _ChannelListItem extends StatelessWidget {
+class _ChannelListItem extends StatefulWidget {
   final ChannelModel channel;
   final VoidCallback onTap;
   final Widget leading;
@@ -210,71 +210,170 @@ class _ChannelListItem extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    final timeStr = timeago.format(channel.lastPostAt, locale: 'en_short');
-    final hasUnread = channel.unreadCount > 0;
-    final displayName = channel.displayName.isNotEmpty
-        ? channel.displayName
-        : (channel.isDirect ? 'Direct Message' : channel.name);
+  State<_ChannelListItem> createState() => _ChannelListItemState();
+}
 
-    // Subtitle: show last message preview, or fall back to header
+class _ChannelListItemState extends State<_ChannelListItem>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _fadeAnimation;
+  int _previousUnread = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    );
+    _fadeAnimation = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
+    _controller.value = 1.0;
+    _previousUnread = widget.channel.unreadCount;
+  }
+
+  @override
+  void didUpdateWidget(_ChannelListItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Animate when unread count increases (channel moved to top)
+    if (widget.channel.unreadCount > _previousUnread) {
+      _controller.value = 0.0;
+      _controller.forward();
+    }
+    _previousUnread = widget.channel.unreadCount;
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final timeStr = timeago.format(widget.channel.lastPostAt, locale: 'en_short');
+    final hasUnread = widget.channel.unreadCount > 0;
+    final displayName = widget.channel.displayName.isNotEmpty
+        ? widget.channel.displayName
+        : (widget.channel.isDirect ? 'Direct Message' : widget.channel.name);
+
     String? subtitle;
-    if (channel.lastMessage.isNotEmpty) {
-      subtitle = channel.lastMessage;
-    } else if (channel.header.isNotEmpty) {
-      subtitle = channel.header;
+    if (widget.channel.lastMessage.isNotEmpty) {
+      subtitle = widget.channel.lastMessage;
+    } else if (widget.channel.header.isNotEmpty) {
+      subtitle = widget.channel.header;
     }
 
-    return ListTile(
-      leading: leading,
-      title: Text(
-        displayName,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontWeight: hasUnread ? FontWeight.w700 : FontWeight.w500,
+    return FadeTransition(
+      opacity: _fadeAnimation,
+      child: ListTile(
+        leading: widget.leading,
+        title: Text(
+          displayName,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontWeight: hasUnread ? FontWeight.w700 : FontWeight.w500,
+          ),
+        ),
+        subtitle: subtitle != null
+            ? Text(
+                subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: hasUnread ? customGreyColor800 : secondaryTextColor,
+                  fontSize: 13,
+                  fontWeight: hasUnread ? FontWeight.w500 : FontWeight.normal,
+                ),
+              )
+            : null,
+        trailing: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(timeStr, style: TextStyle(
+              fontSize: 12,
+              color: hasUnread ? inumPrimary : customGreyColor600,
+              fontWeight: hasUnread ? FontWeight.w600 : FontWeight.normal,
+            )),
+            if (hasUnread) ...[
+              const SizedBox(height: 4),
+              _PulsingBadge(count: widget.channel.unreadCount),
+            ],
+          ],
+        ),
+        onTap: widget.onTap,
+      ),
+    );
+  }
+}
+
+/// Animated unread count badge that pulses when count increases.
+class _PulsingBadge extends StatefulWidget {
+  final int count;
+  const _PulsingBadge({required this.count});
+
+  @override
+  State<_PulsingBadge> createState() => _PulsingBadgeState();
+}
+
+class _PulsingBadgeState extends State<_PulsingBadge>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _pulseController;
+  int _prevCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _prevCount = widget.count;
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
+    _pulseController.addListener(() {
+      if (mounted) setState(() {});
+    });
+    // Initial pulse
+    _pulseController.forward().then((_) {
+      if (mounted) _pulseController.reverse();
+    });
+  }
+
+  @override
+  void didUpdateWidget(_PulsingBadge oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.count > _prevCount) {
+      _pulseController.forward(from: 0).then((_) {
+        if (mounted) _pulseController.reverse();
+      });
+    }
+    _prevCount = widget.count;
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scale = 1.0 + _pulseController.value * 0.25;
+    return Transform.scale(
+      scale: scale,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        constraints: const BoxConstraints(minWidth: 22),
+        decoration: BoxDecoration(
+          color: inumPrimary,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          widget.count > 99 ? '99+' : widget.count.toString(),
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: white, fontSize: 11, fontWeight: FontWeight.w600),
         ),
       ),
-      subtitle: subtitle != null
-          ? Text(
-              subtitle,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: hasUnread ? customGreyColor800 : secondaryTextColor,
-                fontSize: 13,
-                fontWeight: hasUnread ? FontWeight.w500 : FontWeight.normal,
-              ),
-            )
-          : null,
-      trailing: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Text(timeStr, style: TextStyle(
-            fontSize: 12,
-            color: hasUnread ? inumPrimary : customGreyColor600,
-            fontWeight: hasUnread ? FontWeight.w600 : FontWeight.normal,
-          )),
-          if (hasUnread) ...[
-            const SizedBox(height: 4),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              constraints: const BoxConstraints(minWidth: 22),
-              decoration: BoxDecoration(
-                color: inumPrimary,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                channel.unreadCount > 99 ? '99+' : channel.unreadCount.toString(),
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: white, fontSize: 11, fontWeight: FontWeight.w600),
-              ),
-            ),
-          ],
-        ],
-      ),
-      onTap: onTap,
     );
   }
 }

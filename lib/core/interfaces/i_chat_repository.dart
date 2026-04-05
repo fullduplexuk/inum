@@ -23,6 +23,9 @@ abstract class IChatRepository {
   Future<List<String>> uploadFile(String channelId, String filePath, String fileName);
   Future<List<String>> uploadFileBytes(String channelId, List<int> bytes, String fileName);
 
+  /// Get channel member data (includes last_viewed_at)
+  Future<Map<String, dynamic>> getChannelMember(String channelId);
+
   /// Get user details including last_activity_at
   Future<Map<String, dynamic>> getUserDetails(String userId);
   String getFileUrl(String fileId);
