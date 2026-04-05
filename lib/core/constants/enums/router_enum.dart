@@ -29,7 +29,9 @@ enum RouterEnum {
   // Phase 9: Chat features
   savedMessagesView('/saved-messages'),
   blockedUsersView('/settings/blocked-users'),
-  searchView('/search');
+  searchView('/search'),
+  // Phase 10: Feature 4
+  joinMeetingView('/join/:roomId');
 
   final String routeName;
   const RouterEnum(this.routeName);

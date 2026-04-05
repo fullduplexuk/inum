@@ -4,6 +4,7 @@ import 'package:inum/core/di/dependency_injector.dart';
 import 'package:inum/data/api/mattermost/mattermost_api_client.dart';
 import 'package:inum/domain/models/meeting/meeting_model.dart';
 import 'package:inum/presentation/design_system/colors.dart';
+import 'package:inum/core/services/meeting_link_service.dart';
 
 class ScheduleMeetingView extends StatefulWidget {
   final String? channelId;
@@ -69,6 +70,37 @@ class _ScheduleMeetingViewState extends State<ScheduleMeetingView> {
       appBar: AppBar(title: const Text('Schedule Meeting'), centerTitle: false),
       body: SingleChildScrollView(padding: const EdgeInsets.all(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          // Phase 10: Instant meeting link
+          SizedBox(width: double.infinity, child: OutlinedButton.icon(
+            onPressed: _isCreating ? null : () async {
+              setState(() => _isCreating = true);
+              try {
+                final info = await MeetingLinkService.generateMeetingLink();
+                if (widget.channelId != null && widget.channelId!.isNotEmpty) {
+                  final apiClient = getIt<MattermostApiClient>();
+                  await apiClient.createPost(widget.channelId!, '\u{1F4F9} Join my meeting: \${info.joinUrl}');
+                }
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Meeting link created!'), backgroundColor: successColor));
+                  Navigator.of(context).pop();
+                }
+              } catch (e) {
+                if (mounted) { setState(() => _isCreating = false);
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: \$e'))); }
+              }
+            },
+            icon: const Icon(Icons.videocam, color: Color(0xFF43A047)),
+            label: const Text('Create Instant Meeting Link'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF43A047),
+              side: const BorderSide(color: Color(0xFF43A047)),
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          )),
+          const SizedBox(height: 12),
+          const Center(child: Text('or schedule for later', style: TextStyle(color: customGreyColor500, fontSize: 13))),
+          const SizedBox(height: 12),
           TextField(controller: _titleController, decoration: InputDecoration(labelText: 'Meeting Title',
             hintText: 'e.g., Sprint Planning', prefixIcon: const Icon(Icons.title),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)))),

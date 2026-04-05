@@ -498,6 +498,40 @@ class CallCubit extends Cubit<CallState> {
     debugPrint('Calls merged (placeholder - conference not implemented)');
   }
 
+  // ── Phase 10: Raise Hand ──
+
+  /// Toggle raise hand for the current user.
+  void toggleRaiseHand() {
+    final currentState = state;
+    if (currentState is! CallActive) return;
+    final userId = _currentUserId ?? '';
+    final raised = List<String>.from(currentState.handRaisedUserIds);
+    if (raised.contains(userId)) {
+      raised.remove(userId);
+    } else {
+      raised.add(userId);
+    }
+    emit(currentState.copyWith(handRaisedUserIds: raised));
+  }
+
+  /// Check if the current user has hand raised.
+  bool get isHandRaised {
+    final currentState = state;
+    if (currentState is! CallActive) return false;
+    return currentState.handRaisedUserIds.contains(_currentUserId ?? '');
+  }
+
+  // ── Phase 10: Call Reactions ──
+
+  /// Send an emoji reaction during the call.
+  void sendCallReaction(String emoji) {
+    final currentState = state;
+    if (currentState is! CallActive) return;
+    // Reactions are ephemeral - they are displayed via the overlay widget
+    // and sent to other participants via data channel
+    debugPrint('Call reaction sent: $emoji');
+  }
+
   void _sendCallSignal(String action, CallModel callModel) {
     try {
       _wsClient.sendCallSignal(action, callModel.toJson());

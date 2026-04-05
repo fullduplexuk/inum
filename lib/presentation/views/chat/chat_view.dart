@@ -31,6 +31,8 @@ import 'package:inum/presentation/blocs/disappearing_messages/disappearing_messa
 import 'package:inum/core/services/disappearing_messages_service.dart';
 import 'package:inum/presentation/views/chat/widgets/multi_select_bar.dart';
 import 'package:inum/core/services/blocked_users_service.dart';
+import 'package:inum/core/services/meeting_link_service.dart';
+import 'package:inum/presentation/views/chat/widgets/meeting_card.dart';
 
 // Emoji name to unicode mapping for common reactions
 const Map<String, String> kEmojiMap = {
@@ -978,6 +980,23 @@ class _ChatViewState extends State<ChatView> {
     }
   }
 
+  void _createMeetingLink() async {
+    setState(() => _showExpandedActions = false);
+    try {
+      final info = await MeetingLinkService.generateMeetingLink(
+        creator: _chatRepo.currentUserId ?? '',
+      );
+      final message = '\u{1F4F9} Join my meeting: ${info.joinUrl}';
+      await _chatRepo.sendMessage(widget.channelId, message);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to create meeting link: \$e')),
+        );
+      }
+    }
+  }
+
   void _createPoll() async {
     setState(() => _showExpandedActions = false);
     final pollMsg = await showDialog<String>(
@@ -1376,6 +1395,7 @@ class _ChatViewState extends State<ChatView> {
                   _ActionButton(icon: Icons.poll, label: 'Poll', onTap: _createPoll),
                   _ActionButton(icon: Icons.contact_page, label: 'Contact', onTap: _shareContact),
                   _ActionButton(icon: Icons.location_on, label: 'Location', onTap: _shareLocation),
+                  _ActionButton(icon: Icons.videocam, label: 'Meeting', onTap: _createMeetingLink),
                 ],
               ),
               ),

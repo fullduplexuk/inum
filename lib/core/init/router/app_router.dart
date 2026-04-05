@@ -29,6 +29,7 @@ import 'package:inum/presentation/views/channels/channel_info_view.dart';
 import 'package:inum/presentation/views/settings/blocked_users_view.dart';
 
 import 'package:inum/presentation/views/saved/saved_messages_view.dart';
+import 'package:inum/presentation/views/call/join_meeting_view.dart';
 import 'package:inum/presentation/views/search/message_search_view.dart';
 
 class AppRouter {
@@ -259,6 +260,18 @@ class AppRouter {
             context,
             state,
             ChannelInfoView(channelId: channelId, channelName: channelName),
+          );
+        },
+      ),
+      // ── Phase 10: Join Meeting via link ──
+      GoRoute(
+        path: RouterEnum.joinMeetingView.routeName,
+        pageBuilder: (context, state) {
+          final roomId = state.pathParameters['roomId'] ?? '';
+          return customPageBuilderWidget(
+            context,
+            state,
+            JoinMeetingView(roomId: roomId),
           );
         },
       ),

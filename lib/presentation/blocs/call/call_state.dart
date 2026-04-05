@@ -73,6 +73,9 @@ class CallActive extends CallState {
   final bool isOnHold;
   final bool showDtmfPad;
   final bool isMerging;
+  // Phase 10: Raise hand & reactions
+  final List<String> handRaisedUserIds;
+  final List<String> callReactionEmojis;
 
   const CallActive({
     required this.callModel,
@@ -89,6 +92,8 @@ class CallActive extends CallState {
     this.isOnHold = false,
     this.showDtmfPad = false,
     this.isMerging = false,
+    this.handRaisedUserIds = const [],
+    this.callReactionEmojis = const [],
   });
 
   CallActive copyWith({
@@ -106,6 +111,8 @@ class CallActive extends CallState {
     bool? isOnHold,
     bool? showDtmfPad,
     bool? isMerging,
+    List<String>? handRaisedUserIds,
+    List<String>? callReactionEmojis,
   }) {
     return CallActive(
       callModel: callModel ?? this.callModel,
@@ -122,6 +129,8 @@ class CallActive extends CallState {
       isOnHold: isOnHold ?? this.isOnHold,
       showDtmfPad: showDtmfPad ?? this.showDtmfPad,
       isMerging: isMerging ?? this.isMerging,
+      handRaisedUserIds: handRaisedUserIds ?? this.handRaisedUserIds,
+      callReactionEmojis: callReactionEmojis ?? this.callReactionEmojis,
     );
   }
 
@@ -141,6 +150,8 @@ class CallActive extends CallState {
         isOnHold,
         showDtmfPad,
         isMerging,
+        handRaisedUserIds,
+        callReactionEmojis,
       ];
 }
 

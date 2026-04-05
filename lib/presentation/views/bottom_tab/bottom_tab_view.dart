@@ -6,6 +6,7 @@ import 'package:inum/presentation/design_system/colors.dart';
 import 'package:inum/presentation/views/call_history/call_history_view.dart';
 import 'package:inum/presentation/views/contacts/contacts_view.dart';
 import 'package:inum/presentation/views/dashboard/dashboard_view.dart';
+import 'package:inum/presentation/views/split/split_view.dart';
 import 'package:inum/presentation/views/profile/profile_view.dart';
 
 class BottomTabView extends StatefulWidget {
@@ -28,7 +29,14 @@ class _BottomTabViewState extends State<BottomTabView> {
   Widget _buildBody() {
     switch (_currentIndex) {
       case 0:
-        return const DashboardView();
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            if (constraints.maxWidth > 900) {
+              return const SplitView();
+            }
+            return const DashboardView();
+          },
+        );
       case 1:
         return const CallHistoryView();
       case 2:

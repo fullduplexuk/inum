@@ -12,6 +12,7 @@ import 'package:inum/presentation/design_system/widgets/user_avatar.dart';
 import 'package:inum/domain/models/chat/channel_model.dart';
 import 'package:inum/presentation/blocs/disappearing_messages/disappearing_messages_cubit.dart';
 import 'package:inum/presentation/views/chat/widgets/disappearing_messages_widgets.dart';
+import 'package:inum/presentation/views/split/split_view.dart';
 
 class DashboardView extends StatefulWidget {
   const DashboardView({super.key});
@@ -49,6 +50,12 @@ class _DashboardViewState extends State<DashboardView> {
 
   void _onChannelTap(ChannelModel channel) {
     final name = channel.displayName.isNotEmpty ? channel.displayName : 'Chat';
+    // Phase 10: If in split view (wide screen), notify SplitView instead of navigating
+    final width = MediaQuery.of(context).size.width;
+    if (width > 900) {
+      SplitView.channelNotifier.value = (id: channel.id, name: name);
+      return;
+    }
     context.push(
       '${RouterEnum.chatView.routeName}?channelId=${channel.id}&channelName=${Uri.encodeComponent(name)}',
     );

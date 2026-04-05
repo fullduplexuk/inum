@@ -6,6 +6,7 @@ import 'package:inum/presentation/blocs/call/call_cubit.dart';
 import 'package:inum/presentation/blocs/call/call_state.dart';
 import 'package:inum/presentation/design_system/colors.dart';
 import 'package:inum/presentation/design_system/widgets/user_avatar.dart';
+import 'package:inum/presentation/views/call/widgets/floating_reaction.dart';
 
 class CallScreen extends StatelessWidget {
   const CallScreen({super.key});
@@ -283,6 +284,21 @@ class _ActiveCallView extends StatelessWidget {
                 child: _LiveCaptionsOverlay(
                   captions: state.liveCaptions,
                   translationEnabled: state.translationEnabled,
+                ),
+              ),
+            // Phase 10: Floating reactions overlay
+            Positioned.fill(
+              child: FloatingReactionsOverlay(
+                key: FloatingReactionsOverlay.globalKey,
+              ),
+            ),
+            // Phase 10: Raised hands counter
+            if (state.handRaisedUserIds.isNotEmpty)
+              Positioned(
+                top: 80,
+                right: 16,
+                child: _RaisedHandsBadge(
+                  count: state.handRaisedUserIds.length,
                 ),
               ),
             // Bottom toolbar
@@ -685,6 +701,7 @@ class _AudioGrid extends StatelessWidget {
               ),
               if (!p.isAudioEnabled)
                 const Icon(Icons.mic_off, color: Colors.red, size: 16),
+              // Phase 10: show raised hand on audio avatar (placeholder)
             ],
           );
         }).toList(),
@@ -933,6 +950,22 @@ class _BottomToolbar extends StatelessWidget {
                 label: 'Add',
                 onPressed: cubit.startAddParticipant,
               ),
+              // Phase 10: Raise hand
+              _CallActionButton(
+                icon: Icons.back_hand,
+                color: state.handRaisedUserIds.contains('')
+                    ? Colors.amber
+                    : Colors.white24,
+                label: cubit.isHandRaised ? 'Lower' : 'Raise',
+                onPressed: cubit.toggleRaiseHand,
+              ),
+              // Phase 10: Reactions
+              _CallActionButton(
+                icon: Icons.emoji_emotions,
+                color: Colors.white24,
+                label: 'React',
+                onPressed: () => _showReactionPicker(context),
+              ),
               _CallActionButton(
                 icon: Icons.call_end,
                 color: Colors.red,
@@ -945,6 +978,125 @@ class _BottomToolbar extends StatelessWidget {
       ),
     );
   }
+}
+
+// ── Phase 10: Raised Hands Badge ────────────────────────────────────────────
+
+class _RaisedHandsBadge extends StatefulWidget {
+  final int count;
+  const _RaisedHandsBadge({required this.count});
+
+  @override
+  State<_RaisedHandsBadge> createState() => _RaisedHandsBadgeState();
+}
+
+class _RaisedHandsBadgeState extends State<_RaisedHandsBadge>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _bounceController;
+
+  @override
+  void initState() {
+    super.initState();
+    _bounceController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _bounceController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _bounceController,
+      builder: (context, child) {
+        final offset = _bounceController.value * 4;
+        return Transform.translate(
+          offset: Offset(0, -offset),
+          child: child,
+        );
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.amber.withAlpha(220),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.amber.withAlpha(80),
+              blurRadius: 8,
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '${widget.count}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Text('\u270B', style: TextStyle(fontSize: 16)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+void _showReactionPicker(BuildContext context) {
+  const reactions = [
+    '\u{1F44D}', // thumbs up
+    '\u{2764}\u{FE0F}', // heart
+    '\u{1F602}', // joy
+    '\u{1F44F}', // clap
+    '\u{1F389}', // party
+    '\u{1F914}', // thinking
+  ];
+
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: const Color(0xFF2A2A3E),
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+    ),
+    builder: (ctx) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: reactions.map((emoji) {
+            return GestureDetector(
+              onTap: () {
+                Navigator.pop(ctx);
+                // Add to the floating overlay
+                FloatingReactionsOverlay.globalKey.currentState
+                    ?.addReaction(emoji, '');
+                // Also notify cubit for data channel broadcast
+                context.read<CallCubit>().sendCallReaction(emoji);
+              },
+              child: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.white.withAlpha(15),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Text(emoji, style: const TextStyle(fontSize: 28)),
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    ),
+  );
 }
 
 // ── Ended ───────────────────────────────────────────────────────────────────

@@ -7,6 +7,7 @@ import 'package:inum/domain/models/call/call_record.dart';
 import 'package:inum/presentation/blocs/call_history/call_history_cubit.dart';
 import 'package:inum/presentation/blocs/call_history/call_history_state.dart';
 import 'package:inum/presentation/design_system/colors.dart';
+import 'package:inum/core/services/meeting_link_service.dart';
 
 class CallHistoryView extends StatefulWidget {
   const CallHistoryView({super.key});
@@ -71,11 +72,29 @@ class _CallHistoryViewState extends State<CallHistoryView>
           indicatorColor: inumPrimary,
         ),
       ),
-      // Phase 7: Dialpad FAB
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => context.push(RouterEnum.dialpadView.routeName),
-        backgroundColor: inumSecondary,
-        child: const Icon(Icons.dialpad, color: Colors.white),
+      // Phase 7: Dialpad FAB + Phase 10: New Meeting
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingActionButton.small(
+            heroTag: 'newMeeting',
+            onPressed: () async {
+              final info = await MeetingLinkService.generateMeetingLink();
+              if (context.mounted) {
+                context.push('/join/\${info.roomId}');
+              }
+            },
+            backgroundColor: const Color(0xFF43A047),
+            child: const Icon(Icons.videocam, color: Colors.white, size: 20),
+          ),
+          const SizedBox(height: 8),
+          FloatingActionButton(
+            heroTag: 'dialpad',
+            onPressed: () => context.push(RouterEnum.dialpadView.routeName),
+            backgroundColor: inumSecondary,
+            child: const Icon(Icons.dialpad, color: Colors.white),
+          ),
+        ],
       ),
       body: BlocBuilder<CallHistoryCubit, CallHistoryState>(
         builder: (context, state) {
