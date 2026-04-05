@@ -110,6 +110,13 @@ class _ChatViewState extends State<ChatView> {
   MessageModel? _replyingTo;
   String? _replyingSenderName;
 
+  // UX polish: drag overlay, last seen, read receipts
+  bool _isDragOver = false;
+  String? _lastSeenText;
+  int? _otherUserLastViewedAt; // epoch ms when the other user last viewed this channel
+  int _memberCount = 0;
+  bool _isDmChannel = false;
+
   late final IChatRepository _chatRepo;
 
   // User statuses cache (userId -> status string: online/away/dnd/offline)
@@ -993,6 +1000,7 @@ class _ChatViewState extends State<ChatView> {
                         currentUserId: _chatRepo.currentUserId ?? '',
                         authToken: _chatRepo.authToken,
                         userStatus: _userStatuses[msg.userId],
+                        otherUserLastViewedAt: _otherUserLastViewedAt,
                         onLongPress: () => _showMessageActions(msg),
                         onReactionTap: (emojiName, hasOwn) {
                           if (hasOwn) {
@@ -1248,6 +1256,7 @@ class _RichMessageBubble extends StatelessWidget {
   final String currentUserId;
   final String? authToken;
   final String? userStatus;
+  final int? otherUserLastViewedAt;
   final VoidCallback onLongPress;
   final void Function(String emojiName, bool hasOwn) onReactionTap;
   final VoidCallback onThreadTap;
@@ -1263,6 +1272,7 @@ class _RichMessageBubble extends StatelessWidget {
     required this.currentUserId,
     this.authToken,
     this.userStatus,
+    this.otherUserLastViewedAt,
     required this.onLongPress,
     required this.onReactionTap,
     required this.onThreadTap,
