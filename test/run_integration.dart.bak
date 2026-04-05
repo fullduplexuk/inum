@@ -232,24 +232,6 @@ Future<void> testChannelList(String token) async {
     } else {
       fail('Channel data has required fields', 'Missing: ${!hasId ? "id " : ""}${!hasType ? "type " : ""}${!hasDisplayName ? "display_name" : ""}');
     }
-
-    // 2e. Set testChannelId dynamically - find first P or O channel
-    for (final ch in channels) {
-      final chType = ch['type'] as String?;
-      final chId = ch['id'] as String?;
-      final chName = ch['display_name'] as String?;
-      if ((chType == 'P' || chType == 'O') && chId != null && chId.isNotEmpty) {
-        testChannelId = chId;
-        print('  INFO: testChannelId set to "$testChannelId" (type=$chType, name=$chName)');
-        break;
-      }
-    }
-
-    if (testChannelId.isEmpty) {
-      fail('Set testChannelId from channel list', 'No P or O channel found');
-    } else {
-      pass('testChannelId set to first P/O channel: $testChannelId');
-    }
   } catch (e) {
     fail('getMyChannels()', e);
   }
