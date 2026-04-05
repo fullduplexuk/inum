@@ -24,7 +24,8 @@ enum RouterEnum {
   qrLoginView('/auth/qr-login'),
   notificationSettingsView('/settings/notifications'),
   scheduleMeetingView('/meetings/schedule'),
-  createChannelView('/channels/create');
+  createChannelView('/channels/create'),
+  channelInfoView('/channels/info');
 
   final String routeName;
   const RouterEnum(this.routeName);

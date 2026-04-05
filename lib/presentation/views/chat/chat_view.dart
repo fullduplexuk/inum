@@ -659,11 +659,6 @@ class _ChatViewState extends State<ChatView> {
             },
           ),
           IconButton(
-            icon: const Icon(Icons.push_pin_outlined, size: 20),
-            tooltip: 'Pinned messages',
-            onPressed: _showPinnedMessages,
-          ),
-          IconButton(
             icon: const Icon(Icons.videocam, size: 22),
             tooltip: 'Video call',
             onPressed: () {
@@ -672,6 +667,21 @@ class _ChatViewState extends State<ChatView> {
                     isVideo: true,
                   );
               context.push(RouterEnum.callView.routeName);
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.push_pin_outlined, size: 20),
+            tooltip: 'Pinned messages',
+            onPressed: _showPinnedMessages,
+          ),
+          IconButton(
+            icon: const Icon(Icons.info_outline, size: 22),
+            tooltip: 'Channel info',
+            onPressed: () {
+              final encodedName = Uri.encodeComponent(widget.channelName);
+              context.push(
+                '${RouterEnum.channelInfoView.routeName}?channelId=${widget.channelId}&channelName=$encodedName',
+              );
             },
           ),
           const SizedBox(width: 4),

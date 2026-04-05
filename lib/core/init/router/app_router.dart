@@ -25,6 +25,7 @@ import 'package:inum/presentation/views/auth/qr_login_view.dart';
 import 'package:inum/presentation/views/settings/notification_settings_view.dart';
 import 'package:inum/presentation/views/meetings/schedule_meeting_view.dart';
 import 'package:inum/presentation/views/channels/create_channel_view.dart';
+import 'package:inum/presentation/views/channels/channel_info_view.dart';
 
 class AppRouter {
   static final _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -238,6 +239,18 @@ class AppRouter {
         pageBuilder: (context, state) =>
             customPageBuilderWidget(
                 context, state, const CreateChannelView()),
+      ),
+      GoRoute(
+        path: RouterEnum.channelInfoView.routeName,
+        pageBuilder: (context, state) {
+          final channelId = state.uri.queryParameters['channelId'] ?? '';
+          final channelName = state.uri.queryParameters['channelName'] ?? '';
+          return customPageBuilderWidget(
+            context,
+            state,
+            ChannelInfoView(channelId: channelId, channelName: channelName),
+          );
+        },
       ),
     ],
   );

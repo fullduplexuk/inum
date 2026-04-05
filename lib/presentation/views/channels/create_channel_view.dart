@@ -34,6 +34,39 @@ class _CreateChannelViewState extends State<CreateChannelView> with SingleTicker
   void dispose() { _tabController.dispose(); _nameController.dispose(); _descController.dispose();
     _headerController.dispose(); _searchController.dispose(); super.dispose(); }
 
+  Future<void> _createChannel() async {
+    final name = _nameController.text.trim();
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter a channel name')));
+      return;
+    }
+    setState(() => _isCreating = true);
+    try {
+      final api = getIt<MattermostApiClient>();
+      final teams = await api.getMyTeams();
+      if (teams.isEmpty) throw Exception('No team found');
+      final teamId = (teams.first as Map<String, dynamic>)['id'] as String;
+      final ch = await api.createChannel({
+        'team_id': teamId,
+        'name': name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9-]'), '-'),
+        'display_name': name,
+        'type': _isPrivate ? 'P' : 'O',
+        'header': _headerController.text.trim(),
+        'purpose': _descController.text.trim(),
+      });
+      final cid = ch['id'] as String? ?? '';
+      if (cid.isNotEmpty && mounted) {
+        Navigator.of(context).pop();
+        context.push('${RouterEnum.chatView.routeName}?channelId=$cid&channelName=${Uri.encodeComponent(name)}');
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isCreating = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: $e')));
+      }
+    }
+  }
+
   Future<void> _createDm() async {
     if (_selectedUserIds.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a user'))); return; }
     setState(() => _isCreating = true);
@@ -92,7 +125,7 @@ class _CreateChannelViewState extends State<CreateChannelView> with SingleTicker
         prefixIcon: const Icon(Icons.short_text), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)))),
       const SizedBox(height: 24),
       SizedBox(width: double.infinity, child: ElevatedButton.icon(
-        onPressed: _isCreating ? null : () { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Channel creation via API pending'))); },
+        onPressed: _isCreating ? null : _createChannel,
         icon: const Icon(Icons.add), label: Text(_isCreating ? 'Creating...' : 'Create Channel'),
         style: ElevatedButton.styleFrom(backgroundColor: inumPrimary, foregroundColor: white,
           padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))))),
@@ -107,11 +140,20 @@ class _CreateChannelViewState extends State<CreateChannelView> with SingleTicker
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
           contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16)))),
       if (_selectedUserIds.isNotEmpty) Container(height: 40, padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: ListView(scrollDirection: Axis.horizontal, children: _selectedUserIds.map((id) => Padding(
-          padding: const EdgeInsets.only(right: 6), child: Chip(
-            label: Text(id.length > 8 ? id.substring(0, 8) : id, style: const TextStyle(fontSize: 12)),
-            deleteIcon: const Icon(Icons.close, size: 16),
-            onDeleted: () => setState(() => _selectedUserIds.remove(id)), visualDensity: VisualDensity.compact))).toList())),
+        child: BlocBuilder<ContactsCubit, ContactsState>(builder: (context, state) {
+          return ListView(scrollDirection: Axis.horizontal, children: _selectedUserIds.map((id) {
+            String label = id.length > 8 ? id.substring(0, 8) : id;
+            if (state is ContactsLoaded) {
+              final match = state.contacts.where((c) => c.id == id);
+              if (match.isNotEmpty) label = match.first.displayName;
+            }
+            return Padding(
+              padding: const EdgeInsets.only(right: 6), child: Chip(
+                label: Text(label, style: const TextStyle(fontSize: 12)),
+                deleteIcon: const Icon(Icons.close, size: 16),
+                onDeleted: () => setState(() => _selectedUserIds.remove(id)), visualDensity: VisualDensity.compact));
+          }).toList());
+        })),
       Expanded(child: BlocBuilder<ContactsCubit, ContactsState>(builder: (context, state) {
         if (state is ContactsLoading) return const Center(child: CircularProgressIndicator());
         if (state is ContactsLoaded) {

@@ -22,7 +22,15 @@ class LiveKitService {
       _room?.remoteParticipants.values.toList() ?? [];
 
   /// Connect to a LiveKit room.
+  ///
+  /// Connects to [url] using the provided JWT [token].
+  /// On web, some features (camera, screen-share) may be limited.
   Future<lk.Room> connect(String url, String token) async {
+    // Disconnect any existing room first
+    if (_room != null) {
+      await disconnect();
+    }
+
     _room = lk.Room(
       roomOptions: const lk.RoomOptions(
         adaptiveStream: true,
@@ -43,10 +51,21 @@ class LiveKitService {
     _roomListener = _room!.createListener();
     _setupListeners();
 
-    await _room!.connect(url, token);
-
-    _localParticipant = _room!.localParticipant;
-    return _room!;
+    try {
+      await _room!.connect(url, token);
+      _localParticipant = _room!.localParticipant;
+      debugPrint('LiveKit connected to ');
+      return _room!;
+    } catch (e) {
+      debugPrint('LiveKit connection failed: ');
+      // Clean up on failure
+      _roomListener?.dispose();
+      _roomListener = null;
+      await _room?.dispose();
+      _room = null;
+      _localParticipant = null;
+      rethrow;
+    }
   }
 
   void _setupListeners() {

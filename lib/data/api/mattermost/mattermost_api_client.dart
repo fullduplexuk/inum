@@ -382,6 +382,40 @@ class MattermostApiClient {
     return _request('POST', '/channels', body: channelData);
   }
 
+
+  // --- Channel Management ---
+
+  Future<Map<String, dynamic>> addChannelMember(String channelId, String userId) async {
+    return _request('POST', '/channels/$channelId/members', body: {
+      'user_id': userId,
+    });
+  }
+
+  Future<void> removeChannelMember(String channelId, String userId) async {
+    await _request('DELETE', '/channels/$channelId/members/$userId');
+  }
+
+  Future<void> leaveChannel(String channelId, String userId) async {
+    await _request('DELETE', '/channels/$channelId/members/$userId');
+  }
+
+  Future<Map<String, dynamic>> updateChannel(
+    String channelId, {
+    String? displayName,
+    String? header,
+    String? purpose,
+  }) async {
+    final body = <String, dynamic>{};
+    if (displayName != null) body['display_name'] = displayName;
+    if (header != null) body['header'] = header;
+    if (purpose != null) body['purpose'] = purpose;
+    return _request('PUT', '/channels/$channelId', body: body);
+  }
+
+  Future<Map<String, dynamic>> getChannelStats(String channelId) async {
+    return _request('GET', '/channels/$channelId/stats');
+  }
+
   void dispose() {
     _client.close();
   }

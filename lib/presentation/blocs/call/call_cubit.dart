@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
+import 'package:inum/core/config/env_config.dart';
 import 'package:inum/data/api/livekit/livekit_service.dart';
 import 'package:inum/data/api/mattermost/mattermost_ws_client.dart';
 import 'package:inum/domain/models/call/call_model.dart';
@@ -18,8 +20,16 @@ class CallCubit extends Cubit<CallState> {
   StreamSubscription<LiveKitEvent>? _lkSubscription;
   StreamSubscription<Map<String, dynamic>>? _wsSubscription;
 
-  // Placeholder LiveKit URL - will be configured when server is deployed
   static const String _defaultLiveKitUrl = 'wss://livekit.vista.inum.com';
+
+  /// Base URL for the LiveKit token API.
+  String get _livekitTokenApiUrl {
+    try {
+      return EnvConfig.instance.livekitTokenApiUrl;
+    } catch (_) {
+      return 'https://lk-api.vista.inum.com';
+    }
+  }
 
   CallCubit({
     required LiveKitService liveKitService,
@@ -87,14 +97,52 @@ class CallCubit extends Cubit<CallState> {
     endCall(reason: 'Remote ended');
   }
 
+  // ── Token API helpers ──────────────────────────────────────────────────
+
+  Future<Map<String, dynamic>> _postTokenApi(String path, Map<String, dynamic> body) async {
+    final url = Uri.parse('$_livekitTokenApiUrl$path');
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      );
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        if (response.body.isEmpty) return <String, dynamic>{};
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      }
+      debugPrint('Token API error ${response.statusCode}: ${response.body}');
+      return <String, dynamic>{};
+    } catch (e) {
+      debugPrint('Token API network error ($path): $e');
+      return <String, dynamic>{};
+    }
+  }
+
+  // ── Initiate Call ─────────────────────────────────────────────────────
+
   /// Initiate a call to a channel/user.
-  void initiateCall(String channelId, {bool isVideo = false}) {
+  Future<void> initiateCall(String channelId, {bool isVideo = false}) async {
     if (state is! CallIdle) return;
 
     final roomId = const Uuid().v4();
+    final callType = isVideo ? CallType.video : CallType.audio;
+
+    // Try to get a token from the LiveKit Token API
+    final apiResult = await _postTokenApi('/call/initiate', {
+      'caller_id': _currentUserId ?? '',
+      'caller_name': _currentUsername ?? '',
+      'channel_id': channelId,
+      'call_type': isVideo ? 'video' : 'audio',
+    });
+
+    final roomName = apiResult['room_name'] as String? ?? 'call-$roomId';
+    final callerToken = apiResult['token'] as String? ?? '';
+    final callId = apiResult['call_id'] as String? ?? roomId;
+
     final callModel = CallModel(
-      roomName: 'call-$roomId',
-      roomId: roomId,
+      roomName: roomName,
+      roomId: callId,
       participants: [
         CallParticipant(
           userId: _currentUserId ?? '',
@@ -102,32 +150,66 @@ class CallCubit extends Cubit<CallState> {
           isVideoEnabled: isVideo,
         ),
       ],
-      callType: isVideo ? CallType.video : CallType.audio,
+      callType: callType,
       initiatedBy: _currentUserId ?? '',
       startedAt: DateTime.now(),
       status: CallStatus.ringing,
       channelId: channelId,
       livekitUrl: _defaultLiveKitUrl,
+      livekitToken: callerToken,
     );
 
     emit(CallOutgoing(callModel: callModel));
+
+    // Send call invite signal via WS to the callee
     _sendCallSignal('custom_call_invite', callModel);
+
+    // If we got a token, connect right away (caller waits in room for callee)
+    if (callerToken.isNotEmpty) {
+      try {
+        await _liveKitService.connect(_defaultLiveKitUrl, callerToken);
+      } catch (e) {
+        debugPrint('Failed to connect caller to LiveKit: $e');
+      }
+    }
   }
 
   /// Accept an incoming call.
-  void acceptCall() {
+  Future<void> acceptCall() async {
     final currentState = state;
     if (currentState is! CallIncoming) return;
 
     final callModel = currentState.callModel;
-    _sendCallSignal('custom_call_accept', callModel);
-    _connectToRoom(callModel);
+
+    // Get a callee token from the Token API
+    final apiResult = await _postTokenApi('/call/accept', {
+      'call_id': callModel.roomId,
+      'callee_id': _currentUserId ?? '',
+      'callee_name': _currentUsername ?? '',
+    });
+
+    final calleeToken = apiResult['token'] as String? ?? '';
+    final roomName = apiResult['room_name'] as String? ?? callModel.roomName;
+
+    final updatedModel = callModel.copyWith(
+      roomName: roomName,
+      livekitToken: calleeToken.isNotEmpty ? calleeToken : callModel.livekitToken,
+    );
+
+    _sendCallSignal('custom_call_accept', updatedModel);
+    _connectToRoom(updatedModel);
   }
 
   /// Reject an incoming call.
-  void rejectCall() {
+  Future<void> rejectCall() async {
     final currentState = state;
     if (currentState is! CallIncoming) return;
+
+    // Notify Token API
+    await _postTokenApi('/call/reject', {
+      'call_id': currentState.callModel.roomId,
+      'user_id': _currentUserId ?? '',
+    });
 
     _sendCallSignal('custom_call_reject', currentState.callModel);
     emit(const CallEnded(duration: Duration.zero, reason: 'Declined'));
@@ -135,7 +217,7 @@ class CallCubit extends Cubit<CallState> {
   }
 
   /// End the current call.
-  void endCall({String? reason}) {
+  Future<void> endCall({String? reason}) async {
     final currentState = state;
     CallModel? callModel;
     Duration duration = Duration.zero;
@@ -155,6 +237,13 @@ class CallCubit extends Cubit<CallState> {
 
     if (callModel != null) {
       _sendCallSignal('custom_call_end', callModel);
+
+      // Notify Token API
+      await _postTokenApi('/call/end', {
+        'call_id': callModel.roomId,
+        'user_id': _currentUserId ?? '',
+        'duration_seconds': duration.inSeconds,
+      });
     }
 
     emit(CallEnded(duration: duration, reason: reason));
@@ -167,7 +256,7 @@ class CallCubit extends Cubit<CallState> {
       final token = callModel.livekitToken ?? '';
 
       if (token.isEmpty) {
-        debugPrint('LiveKit token not available yet - server not deployed');
+        debugPrint('LiveKit token not available - entering active state without LiveKit');
         _enterActiveState(callModel);
         return;
       }
@@ -355,7 +444,7 @@ class CallCubit extends Cubit<CallState> {
     emit(currentState.copyWith(liveCaptions: updated));
   }
 
-  // ── Phase 7: Hold ──────────────────────────────────────────────────────
+  // -- Phase 7: Hold --
 
   /// Toggle call hold on/off.
   void toggleHold() {
@@ -369,7 +458,7 @@ class CallCubit extends Cubit<CallState> {
     );
   }
 
-  // ── Phase 7: DTMF ─────────────────────────────────────────────────────
+  // -- Phase 7: DTMF --
 
   /// Toggle the in-call DTMF pad visibility.
   void toggleDtmfPad() {
@@ -382,11 +471,10 @@ class CallCubit extends Cubit<CallState> {
   void sendDtmf(String digit) {
     final currentState = state;
     if (currentState is! CallActive) return;
-    // Placeholder: would send DTMF via LiveKit data channel or SIP INFO
     debugPrint('DTMF sent: $digit (placeholder - SIP bridge not deployed)');
   }
 
-  // ── Phase 7: Call Merge ────────────────────────────────────────────────
+  // -- Phase 7: Call Merge --
 
   /// Start adding a participant to the active call.
   void startAddParticipant() {

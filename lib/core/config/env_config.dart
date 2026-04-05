@@ -13,6 +13,7 @@ class EnvConfig {
   String get livekitUrl => _getEnvVariable('LIVEKIT_URL');
   String get livekitApiKey => _getEnvVariable('LIVEKIT_API_KEY');
   String get livekitApiSecret => _getEnvVariable('LIVEKIT_API_SECRET');
+  String get livekitTokenApiUrl => _getEnvVariable('LIVEKIT_TOKEN_API_URL');
 
   Future<void> initialize() async {
     if (_initialized) return;
